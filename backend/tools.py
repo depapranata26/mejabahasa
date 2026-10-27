@@ -107,6 +107,22 @@ TOOL_SPECS = [
                    " total_idr, budget_idr, remaining_idr}",
     },
     {
+        "name": "update_order",
+        "description": (
+            "Revise a DRAFT order's items (guest changed their mind). "
+            "The new list replaces the old one. Re-validates stock and "
+            "allergies; over-stock errors carry the available quantity "
+            "plus alternatives so the agent can negotiate."
+        ),
+        "parameters": {
+            "order_id": "integer, must be a draft",
+            "items": "list of {menu_item_id, qty, custom_note?}",
+            "allergy_notes": "optional override, else stored notes",
+            "dietary_notes": "optional override, else stored notes",
+        },
+        "returns": "{order_id, status: 'draft', total_idr, items}",
+    },
+    {
         "name": "request_acc",
         "description": (
             "Ask staff to approve (ACC) a guest-confirmed order. Moves the "
@@ -178,6 +194,29 @@ def _allergy_conflicts(allergy_notes, allergens):
         ):
             hits.append(allergen)
     return hits
+
+
+def _overstock_message(conn, mrow, qty):
+    """Negotiation-ready over-stock error: available qty + alternatives.
+
+    The message is data the agent negotiates with — never a bare refusal:
+    take the available quantity, switch to an alternative, or cancel.
+    """
+    alts = conn.execute(
+        "SELECT name, price_idr FROM menu_items"
+        " WHERE category = ? AND id != ? AND stock > 0"
+        " ORDER BY id LIMIT 3",
+        (mrow["category"], mrow["id"]),
+    ).fetchall()
+    alt_text = ", ".join(
+        f"{a['name']} (Rp{a['price_idr']})" for a in alts
+    ) or "tidak ada alternatif se-kategori saat ini"
+    return (
+        f"Stok '{mrow['name']}' tidak cukup: diminta {qty}, "
+        f"tersedia {mrow['stock']}. Bisa dipesan {mrow['stock']} porsi, "
+        f"atau alternatif se-kategori: {alt_text}. Tanyakan ke tamu: "
+        f"mau {mrow['stock']} porsi saja, ganti alternatif, atau batal?"
+    )
 
 
 def _connect(db_path):
@@ -342,8 +381,7 @@ def create_order(table_no, items, language, db_path=None,
                       "pesanan ditolak, tidak ditebak.")
             if row["stock"] < qty:
                 _fail(db_path, None, "create_order", inputs,
-                      f"Stok '{row['name']}' tidak cukup: diminta {qty}, "
-                      f"tersedia {row['stock']}.")
+                      _overstock_message(conn, row, qty))
             allergens = json.loads(row["allergens_json"] or "[]")
             conflicts = _allergy_conflicts(allergy_notes, allergens)
             if conflicts:
@@ -374,6 +412,94 @@ def create_order(table_no, items, language, db_path=None,
         conn.close()
     result = {"order_id": order_id, "status": "draft", "total_idr": total_idr}
     _log(db_path, order_id, "create_order", "create_order", inputs, result)
+    return result
+
+
+def update_order(order_id, items, db_path=None, allergy_notes=None,
+                 dietary_notes=None):
+    """Revise a DRAFT order's items (guest changed their mind).
+
+    Only drafts can be revised — confirmed/ACC/ticketed orders are
+    locked. The new item list REPLACES the old one (omitting an item
+    removes it). Every new item is re-validated exactly like
+    create_order: known item, qty > 0, stock sufficient (with available
+    qty + alternatives in the error, so the agent can negotiate),
+    allergy conflicts against the given notes (or the order's stored
+    notes when not provided). Returns the new total.
+    """
+    inputs = {"order_id": order_id, "items": items,
+              "allergy_notes": allergy_notes, "dietary_notes": dietary_notes}
+    if not items or not isinstance(items, list):
+        _fail(db_path, order_id, "update_order", inputs,
+              "Order revisi harus berisi minimal satu item.")
+    conn = _connect(db_path)
+    try:
+        row = _get_order(conn, order_id)
+        try:
+            _require_status(row, "draft", "revisi order")
+        except ValueError as e:
+            conn.close()
+            _fail(db_path, order_id, "update_order", inputs, str(e))
+        notes = allergy_notes if allergy_notes is not None \
+            else row["allergy_notes"]
+        diet = dietary_notes if dietary_notes is not None \
+            else row["dietary_notes"]
+        resolved = []
+        total_idr = 0
+        for item in items:
+            menu_item_id = item.get("menu_item_id")
+            qty = item.get("qty")
+            custom_note = item.get("custom_note") or item.get("note", "") or ""
+            if not isinstance(qty, int) or qty <= 0:
+                conn.close()
+                _fail(db_path, order_id, "update_order", inputs,
+                      f"Jumlah untuk item {menu_item_id} harus bilangan "
+                      f"bulat > 0, bukan {qty!r}.")
+            mrow = conn.execute(
+                "SELECT * FROM menu_items WHERE id = ?", (menu_item_id,)
+            ).fetchone()
+            if mrow is None:
+                conn.close()
+                _fail(db_path, order_id, "update_order", inputs,
+                      f"Item menu id {menu_item_id} tidak ada di database — "
+                      "pesanan ditolak, tidak ditebak.")
+            if mrow["stock"] < qty:
+                msg = _overstock_message(conn, mrow, qty)
+                conn.close()
+                _fail(db_path, order_id, "update_order", inputs, msg)
+            allergens = json.loads(mrow["allergens_json"] or "[]")
+            conflicts = _allergy_conflicts(notes, allergens)
+            if conflicts:
+                conn.close()
+                _fail(db_path, order_id, "update_order", inputs,
+                      f"ALERGI: '{mrow['name']}' mengandung "
+                      f"{', '.join(conflicts)} yang bentrok dengan alergi "
+                      f"tamu ('{notes}'). Item ini ditolak — "
+                      "tawarkan alternatif dari menu, jangan loloskan.")
+            resolved.append((mrow["id"], qty, custom_note))
+            total_idr += mrow["price_idr"] * qty
+        conn.execute("DELETE FROM order_items WHERE order_id = ?",
+                     (order_id,))
+        conn.executemany(
+            "INSERT INTO order_items"
+            " (order_id, menu_item_id, qty, note, custom_note)"
+            " VALUES (?, ?, ?, ?, ?)",
+            [(order_id, mid, qty, note, note) for mid, qty, note in resolved],
+        )
+        conn.execute(
+            "UPDATE orders SET allergy_notes = ?, dietary_notes = ?,"
+            " updated_at = datetime('now') WHERE id = ?",
+            (notes or "", diet or "", order_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    result = {"order_id": order_id, "status": "draft",
+              "total_idr": total_idr,
+              "items": [{"menu_item_id": mid, "qty": qty,
+                         "custom_note": note}
+                        for mid, qty, note in resolved]}
+    _log(db_path, order_id, "update_order", "update_order", inputs, result)
     return result
 
 

@@ -540,3 +540,54 @@ def decide_acc(order_id, accepted, db_path=None):
     result = {"order_id": order_id, "status": status}
     _log(db_path, order_id, "staff_decide", "decide_acc", inputs, result)
     return result
+
+
+# ------------------------------------------------- kitchen lifecycle (UI steps)
+
+_TICKET_TRANSITIONS = {"open": "cooking", "cooking": "ready", "ready": "served"}
+
+
+def set_ticket_status(ticket_id, status, db_path=None):
+    """Move a kitchen ticket along its lifecycle. Called by kitchen UI.
+
+    Allowed transitions only: open -> cooking -> ready -> served.
+    When a ticket is served, its order becomes 'done' (end of the
+    state machine: sent_to_kitchen -> done).
+    """
+    inputs = {"ticket_id": ticket_id, "status": status}
+    if status not in _TICKET_TRANSITIONS.values():
+        _fail(db_path, None, "set_ticket_status", inputs,
+              f"Status tiket '{status}' tidak dikenal. "
+              f"Pilihan: cooking, ready, served.")
+    expected_prev = {v: k for k, v in _TICKET_TRANSITIONS.items()}[status]
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM kitchen_tickets WHERE id = ?", (ticket_id,)
+        ).fetchone()
+        if row is None:
+            conn.close()
+            _fail(db_path, None, "set_ticket_status", inputs,
+                  f"Tiket {ticket_id} tidak ditemukan.")
+        if row["status"] != expected_prev:
+            conn.close()
+            _fail(db_path, None, "set_ticket_status", inputs,
+                  f"Tidak bisa {status}: tiket {ticket_id} berstatus "
+                  f"'{row['status']}', harus '{expected_prev}'.")
+        conn.execute(
+            "UPDATE kitchen_tickets SET status = ? WHERE id = ?",
+            (status, ticket_id),
+        )
+        if status == "served":
+            conn.execute(
+                "UPDATE orders SET status = 'done',"
+                " updated_at = datetime('now') WHERE id = ?",
+                (row["order_id"],),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    result = {"ticket_id": ticket_id, "status": status}
+    _log(db_path, row["order_id"], "ticket_status", "set_ticket_status",
+         inputs, result)
+    return result

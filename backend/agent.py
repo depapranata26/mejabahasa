@@ -54,6 +54,18 @@ HARD RULES — violating any of these is a failure:
 6. If a tool call returns an error, tell the guest what went wrong in their
    language and ask how they want to proceed — do not retry with a guessed
    value.
+7. ALLERGY SAFETY (mandatory, never skip): BEFORE calling create_order,
+   you MUST ask the guest about allergies, dietary restrictions, and
+   diet preferences, in the guest's language. Do NOT create an order
+   until the guest has answered — even if they already listed dishes.
+   If they say they have none, proceed.
+8. If a create_order call fails with an allergy conflict, warn the guest
+   clearly in their language (name the dish AND the allergen) and offer
+   alternatives from the menu that do not contain it — never push the
+   conflicting dish through.
+9. Pass the guest's allergy notes, dietary notes, and each item's custom
+   note (e.g. "kurang pedas", "tanpa bawang", "tambah sambal") to
+   create_order, so the kitchen ticket carries them prominently.
 
 When you need data, call a tool. When you have everything, reply to the
 guest concisely in their language.
@@ -95,7 +107,7 @@ OPENAI_TOOLS = [
         "type": "function",
         "function": {
             "name": "create_order",
-            "description": "Store a DRAFT order (table number, guest language code, items). A draft is NOT a real order yet.",
+            "description": "Store a DRAFT order (table number, guest language code, items). A draft is NOT a real order yet. Before calling this, you MUST have asked the guest about allergies, dietary restrictions, and diet preferences, and you MUST pass their answers here.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -103,6 +115,14 @@ OPENAI_TOOLS = [
                     "language": {
                         "type": "string",
                         "enum": ["zh", "ko", "ja", "id"],
+                    },
+                    "allergy_notes": {
+                        "type": "string",
+                        "description": "Guest's allergies, e.g. 'alergi kacang'. Checked against every item's allergens; a conflict rejects the order.",
+                    },
+                    "dietary_notes": {
+                        "type": "string",
+                        "description": "Guest's dietary restrictions or diet, e.g. 'vegetarian'. Shown on the kitchen ticket.",
                     },
                     "items": {
                         "type": "array",
@@ -112,6 +132,7 @@ OPENAI_TOOLS = [
                                 "menu_item_id": {"type": "integer"},
                                 "qty": {"type": "integer"},
                                 "note": {"type": "string"},
+                                "custom_note": {"type": "string", "description": "Per-item customization, e.g. 'kurang pedas', 'tanpa bawang', 'tambah sambal'."},
                             },
                             "required": ["menu_item_id", "qty"],
                         },
@@ -135,6 +156,8 @@ _TOOL_DISPATCH = {
         args["items"],
         args["language"],
         db_path=db,
+        allergy_notes=args.get("allergy_notes", ""),
+        dietary_notes=args.get("dietary_notes", ""),
     ),
 }
 

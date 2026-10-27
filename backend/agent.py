@@ -66,6 +66,9 @@ HARD RULES — violating any of these is a failure:
 9. Pass the guest's allergy notes, dietary notes, and each item's custom
    note (e.g. "kurang pedas", "tanpa bawang", "tambah sambal") to
    create_order, so the kitchen ticket carries them prominently.
+10. You do not know the guest's table number (it is set by the system from
+    their QR code). Never invent, state, or change a table number in your
+    reply or in any tool argument.
 
 When you need data, call a tool. When you have everything, reply to the
 guest concisely in their language.
@@ -107,11 +110,10 @@ OPENAI_TOOLS = [
         "type": "function",
         "function": {
             "name": "create_order",
-            "description": "Store a DRAFT order (table number, guest language code, items). A draft is NOT a real order yet. Before calling this, you MUST have asked the guest about allergies, dietary restrictions, and diet preferences, and you MUST pass their answers here.",
+            "description": "Store a DRAFT order (guest language code, items). A draft is NOT a real order yet. The table number is set by the system from the guest's QR code — do not pass table_no yourself. Before calling this, you MUST have asked the guest about allergies, dietary restrictions, and diet preferences, and you MUST pass their answers here.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "table_no": {"type": "string"},
                     "language": {
                         "type": "string",
                         "enum": ["zh", "ko", "ja", "id"],
@@ -152,7 +154,10 @@ _TOOL_DISPATCH = {
         args["menu_item_id"], args["qty"], db_path=db
     ),
     "create_order": lambda args, db: tools_mod.create_order(
-        args.get("table_no") or _CTX["table_no"],
+        # Server-side injection: the table number comes from the scanned QR
+        # context, NEVER from the model. A model-invented table_no (e.g. 1)
+        # must not reach the database — the dispatch overrides it always.
+        _CTX["table_no"],
         args["items"],
         args["language"],
         db_path=db,

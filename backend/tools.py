@@ -1,20 +1,42 @@
-"""Agent tool specifications and stubs for MejaBahasa.
+"""Agent tool implementations for MejaBahasa (ordering core, day 2).
 
-These are the ONLY actions the planner may take, and every call must be
-recorded in ``agent_action_log`` (see data/schema.sql). Guardrails from the
-PRD, enforced by the implementations landing on day 2-3:
+These are the ONLY actions the planner may take, and every call is
+recorded in ``agent_action_log`` (see data/schema.sql). Guardrails from
+the PRD, enforced here — not by prompt hope:
 
 1. Never guess: on any ambiguity, ask back in the guest's language instead
    of calling a mutating tool.
 2. Price / stock / menu ONLY from the database. Never invent values.
+   An item that is not in the database is REJECTED with a clear error —
+   never fuzzy-matched or guessed.
 3. An order becomes real only after guest confirmation AND staff ACC
-   (human-in-the-loop). ``create_order`` stores a draft; ``request_acc``
-   asks staff; ``send_kitchen_ticket`` fires only for ACC-accepted orders.
-4. Every tool call is logged with its input and output for audit.
+   (human-in-the-loop). ``create_order`` stores a draft; the guest confirms
+   (``confirm_order``); ``request_acc`` asks staff; staff decides
+   (``decide_acc``); ``send_kitchen_ticket`` fires only for ACC-accepted
+   orders and deducts stock atomically.
+4. Every tool call — success or failure — is logged with its input and
+   output for audit.
 
-Day-1 status: specifications + stubs. Implementations connect to SQLite
-(day 2: ordering core; day 3: clarification + ACC + kitchen ticket).
+Order status flow (enforced by the functions below):
+  draft -> confirmed -> acc_pending -> acc_accepted -> sent_to_kitchen
+  acc_pending -> acc_rejected (staff declines; no ticket is sent)
+
+``confirm_order`` and ``decide_acc`` are NOT agent tools: they are the
+human steps (guest tap, staff tap on the dashboard) that the UI calls.
+They live here so the state machine is traversable and testable before
+the UI exists.
+
+All functions accept an optional ``db_path`` (default: config.DATABASE_PATH)
+so tests can use an isolated database.
 """
+
+import json
+import sqlite3
+
+try:
+    from backend.config import DATABASE_PATH, SUPPORTED_LANGUAGES
+except ImportError:  # direct script execution from inside backend/
+    from config import DATABASE_PATH, SUPPORTED_LANGUAGES
 
 TOOL_SPECS = [
     {
@@ -76,34 +98,312 @@ TOOL_SPECS = [
     },
 ]
 
-
-def _not_implemented(name):
-    raise NotImplementedError(
-        f"{name} is a day-1 stub; implementation lands with the ordering "
-        "core (day 2) and ACC + kitchen ticket (day 3)."
-    )
+CATEGORIES = ("makanan_utama", "minuman", "penutup")
 
 
-def get_menu(category=None):
-    """Stub: list menu items from the database."""
-    _not_implemented("get_menu")
+def _connect(db_path):
+    conn = sqlite3.connect(db_path or DATABASE_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
 
 
-def check_stock(menu_item_id, qty):
-    """Stub: check stock for one menu item."""
-    _not_implemented("check_stock")
+def _log(db_path, order_id, action, tool, input_data, output_data):
+    """Audit log: own connection, committed immediately (survives rollback)."""
+    conn = _connect(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO agent_action_log"
+            " (order_id, action, tool, input_json, output_json)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (
+                order_id,
+                action,
+                tool,
+                json.dumps(input_data, ensure_ascii=False),
+                json.dumps(output_data, ensure_ascii=False),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
-def create_order(table_no, items, language):
-    """Stub: store a draft order (guest confirmation still required)."""
-    _not_implemented("create_order")
+def _fail(db_path, order_id, tool, input_data, message):
+    """Log a rejected call, then raise the same rejection to the caller."""
+    _log(db_path, order_id, tool, tool, input_data, {"error": message})
+    raise ValueError(message)
 
 
-def request_acc(order_id):
-    """Stub: move a guest-confirmed order to acc_pending."""
-    _not_implemented("request_acc")
+def _get_order(conn, order_id):
+    row = conn.execute(
+        "SELECT * FROM orders WHERE id = ?", (order_id,)
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"Order {order_id} tidak ditemukan.")
+    return row
 
 
-def send_kitchen_ticket(order_id):
-    """Stub: send the kitchen ticket for an ACC-accepted order only."""
-    _not_implemented("send_kitchen_ticket")
+def _require_status(row, expected, action):
+    if row["status"] != expected:
+        raise ValueError(
+            f"Tidak bisa {action}: order {row['id']} berstatus "
+            f"'{row['status']}', harus '{expected}'."
+        )
+
+
+# ---------------------------------------------------------------- agent tools
+
+def get_menu(category=None, db_path=None):
+    """List menu items from the database, optionally filtered by category."""
+    if category is not None and category not in CATEGORIES:
+        _fail(db_path, None, "get_menu", {"category": category},
+              f"Kategori '{category}' tidak dikenal. "
+              f"Pilihan: {', '.join(CATEGORIES)}.")
+    conn = _connect(db_path)
+    try:
+        if category:
+            rows = conn.execute(
+                "SELECT * FROM menu_items WHERE category = ? ORDER BY id",
+                (category,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM menu_items ORDER BY id"
+            ).fetchall()
+        result = [dict(r) for r in rows]
+    finally:
+        conn.close()
+    _log(db_path, None, "get_menu", "get_menu",
+         {"category": category}, {"count": len(result)})
+    return result
+
+
+def check_stock(menu_item_id, qty, db_path=None):
+    """Check whether a menu item has enough stock for qty."""
+    if not isinstance(qty, int) or qty <= 0:
+        _fail(db_path, None, "check_stock",
+              {"menu_item_id": menu_item_id, "qty": qty},
+              f"Jumlah harus bilangan bulat > 0, bukan {qty!r}.")
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT * FROM menu_items WHERE id = ?", (menu_item_id,)
+        ).fetchone()
+        if row is None:
+            _fail(db_path, None, "check_stock",
+                  {"menu_item_id": menu_item_id, "qty": qty},
+                  f"Item menu id {menu_item_id} tidak ada di database — "
+                  "pesanan ditolak, tidak ditebak.")
+        result = {
+            "menu_item_id": row["id"],
+            "name": row["name"],
+            "available": row["stock"] >= qty,
+            "stock": row["stock"],
+        }
+    finally:
+        conn.close()
+    _log(db_path, None, "check_stock", "check_stock",
+         {"menu_item_id": menu_item_id, "qty": qty}, result)
+    return result
+
+
+def create_order(table_no, items, language, db_path=None):
+    """Store a DRAFT order. Validates everything before inserting anything.
+
+    Stock is checked but NOT deducted here — a draft is not a real order.
+    Deduction happens atomically in send_kitchen_ticket.
+    """
+    inputs = {"table_no": table_no, "language": language, "items": items}
+    if not table_no or not isinstance(table_no, str):
+        _fail(db_path, None, "create_order", inputs,
+              "Nomor meja wajib diisi (string, mis. 'A12').")
+    if language not in SUPPORTED_LANGUAGES:
+        _fail(db_path, None, "create_order", inputs,
+              f"Bahasa '{language}' tidak didukung. "
+              f"Pilihan: {', '.join(SUPPORTED_LANGUAGES)}.")
+    if not items or not isinstance(items, list):
+        _fail(db_path, None, "create_order", inputs,
+              "Order harus berisi minimal satu item.")
+
+    conn = _connect(db_path)
+    try:
+        # Validate ALL items first: unknown item or bad qty rejects the
+        # whole order — no partial orders, no guessing.
+        resolved = []
+        total_idr = 0
+        for item in items:
+            menu_item_id = item.get("menu_item_id")
+            qty = item.get("qty")
+            note = item.get("note", "") or ""
+            if not isinstance(qty, int) or qty <= 0:
+                _fail(db_path, None, "create_order", inputs,
+                      f"Jumlah untuk item {menu_item_id} harus bilangan "
+                      f"bulat > 0, bukan {qty!r}.")
+            row = conn.execute(
+                "SELECT * FROM menu_items WHERE id = ?", (menu_item_id,)
+            ).fetchone()
+            if row is None:
+                _fail(db_path, None, "create_order", inputs,
+                      f"Item menu id {menu_item_id} tidak ada di database — "
+                      "pesanan ditolak, tidak ditebak.")
+            if row["stock"] < qty:
+                _fail(db_path, None, "create_order", inputs,
+                      f"Stok '{row['name']}' tidak cukup: diminta {qty}, "
+                      f"tersedia {row['stock']}.")
+            resolved.append((row["id"], qty, note))
+            total_idr += row["price_idr"] * qty
+
+        cur = conn.execute(
+            "INSERT INTO orders (table_no, language, status)"
+            " VALUES (?, ?, 'draft')",
+            (table_no, language),
+        )
+        order_id = cur.lastrowid
+        conn.executemany(
+            "INSERT INTO order_items (order_id, menu_item_id, qty, note)"
+            " VALUES (?, ?, ?, ?)",
+            [(order_id, mid, qty, note) for mid, qty, note in resolved],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    result = {"order_id": order_id, "status": "draft", "total_idr": total_idr}
+    _log(db_path, order_id, "create_order", "create_order", inputs, result)
+    return result
+
+
+def request_acc(order_id, db_path=None):
+    """Move a guest-confirmed order to acc_pending (staff approval queue)."""
+    inputs = {"order_id": order_id}
+    conn = _connect(db_path)
+    try:
+        row = _get_order(conn, order_id)
+        try:
+            _require_status(row, "confirmed", "meminta ACC")
+        except ValueError as e:
+            conn.close()
+            _fail(db_path, order_id, "request_acc", inputs, str(e))
+        conn.execute(
+            "UPDATE orders SET status = 'acc_pending',"
+            " updated_at = datetime('now') WHERE id = ?",
+            (order_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    result = {"order_id": order_id, "status": "acc_pending"}
+    _log(db_path, order_id, "request_acc", "request_acc", inputs, result)
+    return result
+
+
+def send_kitchen_ticket(order_id, db_path=None):
+    """Send the Indonesian kitchen ticket for an ACC-ACCEPTED order only.
+
+    Re-checks stock and deducts it in the same transaction, so a ticket
+    can never be sent for stock that is no longer there.
+    """
+    inputs = {"order_id": order_id}
+    conn = _connect(db_path)
+    try:
+        row = _get_order(conn, order_id)
+        try:
+            _require_status(row, "acc_accepted", "mengirim tiket dapur")
+        except ValueError as e:
+            conn.close()
+            _fail(db_path, order_id, "send_kitchen_ticket", inputs, str(e))
+        items = conn.execute(
+            "SELECT oi.qty, oi.note, mi.name, mi.stock, mi.id AS menu_item_id"
+            " FROM order_items oi JOIN menu_items mi"
+            " ON mi.id = oi.menu_item_id WHERE oi.order_id = ?",
+            (order_id,),
+        ).fetchall()
+        for it in items:
+            if it["stock"] < it["qty"]:
+                conn.close()
+                _fail(db_path, order_id, "send_kitchen_ticket", inputs,
+                      f"Stok '{it['name']}' tidak cukup saat kirim tiket: "
+                      f"diminta {it['qty']}, tersedia {it['stock']}.")
+        for it in items:
+            conn.execute(
+                "UPDATE menu_items SET stock = stock - ? WHERE id = ?",
+                (it["qty"], it["menu_item_id"]),
+            )
+        cur = conn.execute(
+            "INSERT INTO kitchen_tickets (order_id, status)"
+            " VALUES (?, 'open')",
+            (order_id,),
+        )
+        ticket_id = cur.lastrowid
+        conn.execute(
+            "UPDATE orders SET status = 'sent_to_kitchen',"
+            " updated_at = datetime('now') WHERE id = ?",
+            (order_id,),
+        )
+        conn.commit()
+        ticket = {
+            "ticket_id": ticket_id,
+            "order_id": order_id,
+            "status": "open",
+            "table_no": row["table_no"],
+            "items": [
+                {"name": it["name"], "qty": it["qty"], "note": it["note"]}
+                for it in items
+            ],
+        }
+    finally:
+        conn.close()
+    _log(db_path, order_id, "send_kitchen_ticket", "send_kitchen_ticket",
+         inputs, ticket)
+    return ticket
+
+
+# ------------------------------------------------------- human steps (not tools)
+
+def confirm_order(order_id, db_path=None):
+    """Guest confirms a draft order. Called by the guest chat UI."""
+    inputs = {"order_id": order_id}
+    conn = _connect(db_path)
+    try:
+        row = _get_order(conn, order_id)
+        try:
+            _require_status(row, "draft", "konfirmasi tamu")
+        except ValueError as e:
+            conn.close()
+            _fail(db_path, order_id, "confirm_order", inputs, str(e))
+        conn.execute(
+            "UPDATE orders SET status = 'confirmed',"
+            " updated_at = datetime('now') WHERE id = ?",
+            (order_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    result = {"order_id": order_id, "status": "confirmed"}
+    _log(db_path, order_id, "guest_confirm", "confirm_order", inputs, result)
+    return result
+
+
+def decide_acc(order_id, accepted, db_path=None):
+    """Staff accepts or rejects an acc_pending order. Dashboard calls this."""
+    inputs = {"order_id": order_id, "accepted": accepted}
+    conn = _connect(db_path)
+    try:
+        row = _get_order(conn, order_id)
+        try:
+            _require_status(row, "acc_pending", "keputusan ACC staf")
+        except ValueError as e:
+            conn.close()
+            _fail(db_path, order_id, "decide_acc", inputs, str(e))
+        status = "acc_accepted" if accepted else "acc_rejected"
+        conn.execute(
+            "UPDATE orders SET status = ?, updated_at = datetime('now')"
+            " WHERE id = ?",
+            (status, order_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    result = {"order_id": order_id, "status": status}
+    _log(db_path, order_id, "staff_decide", "decide_acc", inputs, result)
+    return result

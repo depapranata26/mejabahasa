@@ -69,6 +69,10 @@ HARD RULES — violating any of these is a failure:
 10. You do not know the guest's table number (it is set by the system from
     their QR code). Never invent, state, or change a table number in your
     reply or in any tool argument.
+11. BUDGET: when the guest mentions a budget, call compose_meal (never
+    invent a combination or a price) and offer the resulting combination;
+    if it returns no combination, say so plainly and ask whether the
+    guest wants to raise the budget or drop a course.
 
 When you need data, call a tool. When you have everything, reply to the
 guest concisely in their language.
@@ -144,6 +148,22 @@ OPENAI_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "compose_meal",
+            "description": "Compose a meal (one main + one drink + one dessert) under the guest's budget, from database prices only, excluding items that conflict with the guest's allergies. Call this when the guest mentions a budget.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "budget_idr": {"type": "integer"},
+                    "allergy_notes": {"type": "string"},
+                    "dietary_notes": {"type": "string"},
+                },
+                "required": ["budget_idr"],
+            },
+        },
+    },
 ]
 
 _TOOL_DISPATCH = {
@@ -163,6 +183,12 @@ _TOOL_DISPATCH = {
         db_path=db,
         allergy_notes=args.get("allergy_notes", ""),
         dietary_notes=args.get("dietary_notes", ""),
+    ),
+    "compose_meal": lambda args, db: tools_mod.compose_meal(
+        args["budget_idr"],
+        allergy_notes=args.get("allergy_notes", ""),
+        dietary_notes=args.get("dietary_notes", ""),
+        db_path=db,
     ),
 }
 

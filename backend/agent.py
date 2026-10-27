@@ -73,6 +73,11 @@ HARD RULES — violating any of these is a failure:
     invent a combination or a price) and offer the resulting combination;
     if it returns no combination, say so plainly and ask whether the
     guest wants to raise the budget or drop a course.
+12. NEGOTIATION: when a tool reports insufficient stock with an available
+    quantity and alternatives, negotiate — offer the available quantity,
+    an alternative, or cancellation. Never silently reduce a quantity,
+    and never promise stock you do not have. When the guest agrees to a
+    change to a DRAFT order, call update_order (drafts only).
 
 When you need data, call a tool. When you have everything, reply to the
 guest concisely in their language.
@@ -164,6 +169,34 @@ OPENAI_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_order",
+            "description": "Revise a DRAFT order's items after the guest agrees to a change (guest changed their mind, or a negotiation after insufficient stock). The new list replaces the old one. Drafts only.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "order_id": {"type": "integer"},
+                    "allergy_notes": {"type": "string"},
+                    "dietary_notes": {"type": "string"},
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "menu_item_id": {"type": "integer"},
+                                "qty": {"type": "integer"},
+                                "custom_note": {"type": "string"},
+                            },
+                            "required": ["menu_item_id", "qty"],
+                        },
+                    },
+                },
+                "required": ["order_id", "items"],
+            },
+        },
+    },
 ]
 
 _TOOL_DISPATCH = {
@@ -189,6 +222,11 @@ _TOOL_DISPATCH = {
         allergy_notes=args.get("allergy_notes", ""),
         dietary_notes=args.get("dietary_notes", ""),
         db_path=db,
+    ),
+    "update_order": lambda args, db: tools_mod.update_order(
+        args["order_id"], args["items"], db_path=db,
+        allergy_notes=args.get("allergy_notes"),
+        dietary_notes=args.get("dietary_notes"),
     ),
 }
 

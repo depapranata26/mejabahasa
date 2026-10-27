@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS menu_items (
     spice_level TEXT NOT NULL DEFAULT 'tidak pedas'
         CHECK (spice_level IN ('tidak pedas', 'sedang', 'pedas')),
     is_vegetarian INTEGER NOT NULL DEFAULT 0
-        CHECK (is_vegetarian IN (0, 1))
+        CHECK (is_vegetarian IN (0, 1)),
+    available_from TEXT DEFAULT NULL,
+    available_to TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS orders (

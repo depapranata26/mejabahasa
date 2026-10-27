@@ -92,6 +92,21 @@ TOOL_SPECS = [
         "returns": "{order_id, status: 'draft'}",
     },
     {
+        "name": "compose_meal",
+        "description": (
+            "Compose one meal (main + drink + dessert) under a guest "
+            "budget, from database prices only, excluding items that "
+            "conflict with the guest's allergies. Never invent prices."
+        ),
+        "parameters": {
+            "budget_idr": "integer > 0",
+            "allergy_notes": "string, e.g. 'alergi kacang'",
+            "dietary_notes": "string, e.g. 'vegetarian'",
+        },
+        "returns": "{items: [{id, name, category, price_idr}],"
+                   " total_idr, budget_idr, remaining_idr}",
+    },
+    {
         "name": "request_acc",
         "description": (
             "Ask staff to approve (ACC) a guest-confirmed order. Moves the "
@@ -489,6 +504,75 @@ def send_kitchen_ticket(order_id, db_path=None):
     _log(db_path, order_id, "send_kitchen_ticket", "send_kitchen_ticket",
          inputs, ticket)
     return ticket
+
+
+def compose_meal(budget_idr, allergy_notes="", dietary_notes="",
+                 db_path=None):
+    """Compose one meal (main + drink + dessert) under a budget, from DB.
+
+    Brute-forces every one-per-category combination (8 x 4 x 2 = 64) and
+    keeps the most expensive total that stays UNDER the budget, so the
+    guest gets the most for their money — never an invented price.
+    Items conflicting with the guest's allergies are excluded, as are
+    items with zero stock; 'vegetarian'/'vegan' notes filter accordingly.
+    Items outside their time window are excluded when the menu reports
+    available_now (time-window feature).
+    """
+    inputs = {"budget_idr": budget_idr, "allergy_notes": allergy_notes,
+              "dietary_notes": dietary_notes}
+    if not isinstance(budget_idr, int) or budget_idr <= 0:
+        _fail(db_path, None, "compose_meal", inputs,
+              f"Budget harus bilangan bulat > 0, bukan {budget_idr!r}.")
+    menu = get_menu(db_path=db_path)
+    notes = (dietary_notes or "").lower()
+    vegan = "vegan" in notes
+    vegetarian = vegan or "vegetarian" in notes
+    safe = []
+    for it in menu:
+        if not it.get("available_now", True):
+            continue
+        if it["stock"] <= 0:
+            continue
+        if _allergy_conflicts(allergy_notes, it["allergens"]):
+            continue
+        if vegetarian and not it["is_vegetarian"]:
+            continue
+        if vegan and set(it["allergens"]) & {"telur", "susu"}:
+            continue
+        safe.append(it)
+    by_cat = {c: [it for it in safe if it["category"] == c]
+              for c in CATEGORIES}
+    best = None
+    for main in [None] + by_cat["makanan_utama"]:
+        for drink in [None] + by_cat["minuman"]:
+            for dessert in [None] + by_cat["penutup"]:
+                combo = [x for x in (main, drink, dessert) if x]
+                if not combo:
+                    continue
+                total = sum(x["price_idr"] for x in combo)
+                if total > budget_idr:
+                    continue
+                key = (-total, -len(combo),
+                       tuple(x["id"] for x in combo))
+                if best is None or key < best[0]:
+                    best = (key, combo, total)
+    if best is None:
+        result = {"items": [], "total_idr": 0, "budget_idr": budget_idr,
+                  "remaining_idr": budget_idr,
+                  "message": "Tidak ada kombinasi menu yang muat dalam "
+                             "budget dan pantangan tersebut."}
+    else:
+        _, combo, total = best
+        result = {
+            "items": [{"id": x["id"], "name": x["name"],
+                       "category": x["category"],
+                       "price_idr": x["price_idr"]} for x in combo],
+            "total_idr": total,
+            "budget_idr": budget_idr,
+            "remaining_idr": budget_idr - total,
+        }
+    _log(db_path, None, "compose_meal", "compose_meal", inputs, result)
+    return result
 
 
 # ------------------------------------------------------- human steps (not tools)

@@ -15,6 +15,36 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# Columns added by PRD v0.5 (allergy/diet/custom order). Applied to
+# pre-existing databases too, so an old data/mejabahasa.db keeps working.
+_MIGRATIONS = {
+    "menu_items": [
+        ("ingredients_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("allergens_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("spice_level", "TEXT NOT NULL DEFAULT 'tidak pedas'"),
+        ("is_vegetarian", "INTEGER NOT NULL DEFAULT 0"),
+    ],
+    "orders": [
+        ("allergy_notes", "TEXT NOT NULL DEFAULT ''"),
+        ("dietary_notes", "TEXT NOT NULL DEFAULT ''"),
+    ],
+    "order_items": [
+        ("custom_note", "TEXT NOT NULL DEFAULT ''"),
+    ],
+}
+
+
+def _migrate(conn):
+    """Add missing v0.5 columns to databases created from an older schema."""
+    for table, columns in _MIGRATIONS.items():
+        existing = {
+            row[1]
+            for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        for col, ddl in columns:
+            if col not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+
 
 def create_db(db_path, schema_path=None, menu_path=None):
     schema_path = Path(schema_path or REPO_ROOT / "data" / "schema.sql")
@@ -26,10 +56,12 @@ def create_db(db_path, schema_path=None, menu_path=None):
     conn = sqlite3.connect(db_path)
     try:
         conn.executescript(schema)
+        _migrate(conn)
         conn.executemany(
             "INSERT OR REPLACE INTO menu_items"
-            " (id, name, category, price_idr, stock, description)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            " (id, name, category, price_idr, stock, description,"
+            "  ingredients_json, allergens_json, spice_level, is_vegetarian)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     it["id"],
@@ -38,6 +70,10 @@ def create_db(db_path, schema_path=None, menu_path=None):
                     it["price_idr"],
                     it["stock"],
                     it.get("description", ""),
+                    json.dumps(it.get("ingredients", []), ensure_ascii=False),
+                    json.dumps(it.get("allergens", []), ensure_ascii=False),
+                    it.get("spice_level", "tidak pedas"),
+                    1 if it.get("is_vegetarian") else 0,
                 )
                 for it in menu["items"]
             ],

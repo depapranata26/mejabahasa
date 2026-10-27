@@ -27,7 +27,7 @@ from urllib.parse import urlsplit
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from backend import seed, tools  # noqa: E402
+from backend import report, seed, tools  # noqa: E402
 from backend.config import DATABASE_PATH  # noqa: E402
 
 CSS = """
@@ -260,6 +260,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"orders": list_orders(self.db_path)})
             elif path == "/api/tickets":
                 self._send_json(200, {"tickets": list_tickets(self.db_path)})
+            elif path == "/api/report":
+                self._send_json(200, report.daily_report(self.db_path))
             else:
                 self._send_json(404, {"ok": False, "error": "rute tak dikenal"})
         except Exception as e:  # noqa: BLE001 — demo server, report plainly

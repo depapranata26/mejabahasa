@@ -11,7 +11,13 @@ CREATE TABLE IF NOT EXISTS menu_items (
     category TEXT NOT NULL,
     price_idr INTEGER NOT NULL CHECK (price_idr >= 0),
     stock INTEGER NOT NULL DEFAULT 0 CHECK (stock >= 0),
-    description TEXT DEFAULT ''
+    description TEXT DEFAULT '',
+    ingredients_json TEXT NOT NULL DEFAULT '[]',
+    allergens_json TEXT NOT NULL DEFAULT '[]',
+    spice_level TEXT NOT NULL DEFAULT 'tidak pedas'
+        CHECK (spice_level IN ('tidak pedas', 'sedang', 'pedas')),
+    is_vegetarian INTEGER NOT NULL DEFAULT 0
+        CHECK (is_vegetarian IN (0, 1))
 );
 
 CREATE TABLE IF NOT EXISTS orders (
@@ -22,6 +28,8 @@ CREATE TABLE IF NOT EXISTS orders (
         CHECK (status IN (
             'draft', 'confirmed', 'acc_pending',
             'acc_accepted', 'acc_rejected', 'sent_to_kitchen', 'done')),
+    allergy_notes TEXT NOT NULL DEFAULT '',
+    dietary_notes TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -31,7 +39,8 @@ CREATE TABLE IF NOT EXISTS order_items (
     order_id INTEGER NOT NULL REFERENCES orders(id),
     menu_item_id INTEGER NOT NULL REFERENCES menu_items(id),
     qty INTEGER NOT NULL CHECK (qty > 0),
-    note TEXT DEFAULT ''
+    note TEXT DEFAULT '',
+    custom_note TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS kitchen_tickets (

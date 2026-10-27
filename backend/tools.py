@@ -16,6 +16,13 @@ the PRD, enforced here — not by prompt hope:
    orders and deducts stock atomically.
 4. Every tool call — success or failure — is logged with its input and
    output for audit.
+5. Allergy safety (PRD v0.5): every menu item carries ingredients,
+   allergens, spice level, and a vegetarian flag. create_order matches
+   the guest's allergy notes against each ordered item's allergens and
+   REJECTS the whole order — naming the item and the allergen — on any
+   conflict. A conflict is never silently passed through. Kitchen
+   tickets render allergy/diet notes PROMINENTLY at the very top, plus
+   each item's custom note (e.g. "kurang pedas", "tanpa bawang").
 
 Order status flow (enforced by the functions below):
   draft -> confirmed -> acc_pending -> acc_accepted -> sent_to_kitchen
@@ -31,6 +38,7 @@ so tests can use an isolated database.
 """
 
 import json
+import re
 import sqlite3
 
 try:
@@ -49,7 +57,8 @@ TOOL_SPECS = [
         "parameters": {
             "category": "optional: makanan_utama | minuman | penutup",
         },
-        "returns": "list of {id, name, category, price_idr, stock, description}",
+        "returns": "list of {id, name, category, price_idr, stock, description,"
+                   " ingredients, allergens, spice_level, is_vegetarian}",
     },
     {
         "name": "check_stock",
@@ -73,7 +82,12 @@ TOOL_SPECS = [
         "parameters": {
             "table_no": "string, e.g. 'A12'",
             "language": "zh | ko | ja | id",
-            "items": "list of {menu_item_id, qty, note?}",
+            "items": "list of {menu_item_id, qty, custom_note?}",
+            "allergy_notes": "string, e.g. 'alergi kacang' — checked "
+                             "against every item's allergens; any conflict "
+                             "rejects the order",
+            "dietary_notes": "string, e.g. 'vegetarian' — recorded and "
+                             "shown on the kitchen ticket",
         },
         "returns": "{order_id, status: 'draft'}",
     },
@@ -94,11 +108,61 @@ TOOL_SPECS = [
             "number, items, quantities, and special notes in Indonesian."
         ),
         "parameters": {"order_id": "integer"},
-        "returns": "{ticket_id, status: 'open'}",
+        "returns": "{ticket_id, status: 'open', text: rendered Indonesian "
+                   "ticket with allergy/diet notes at the very top}",
     },
 ]
 
 CATEGORIES = ("makanan_utama", "minuman", "penutup")
+
+# Allergy keyword aliases: guests often say "seafood" or "peanut" instead
+# of the Indonesian allergen names in the database. Aliases expand the
+# guest's words into database allergen names before matching.
+_ALLERGY_ALIASES = {
+    "peanut": "kacang tanah",
+    "seafood": ("udang", "cumi", "kerang", "ikan"),
+    "shellfish": ("udang", "cumi", "kerang"),
+    "milk": "susu",
+    "egg": "telur",
+    "soy": "kedelai",
+    "wheat": "gluten/gandum",
+    "gluten": "gluten/gandum",
+    "coconut": "kelapa",
+    "fish": "ikan",
+    "shrimp": "udang",
+    "squid": "cumi",
+}
+
+
+def _allergy_conflicts(allergy_notes, allergens):
+    """Return the subset of allergens conflicting with the guest's notes.
+
+    Matching is lowercase two-way substring: a guest word matches an
+    allergen if either contains the other ("kacang" matches
+    "kacang tanah" and vice versa). Alias words are expanded first.
+    Tokens shorter than 3 characters are ignored to avoid false
+    positives (e.g. "a" matching everything).
+    """
+    text = (allergy_notes or "").lower()
+    if not text or not allergens:
+        return []
+    words = {w for w in re.split(r"[^a-z0-9/]+", text) if w}
+    expanded = set(words)
+    for w in words:
+        alias = _ALLERGY_ALIASES.get(w)
+        if alias:
+            if isinstance(alias, tuple):
+                expanded.update(alias)
+            else:
+                expanded.add(alias)
+    hits = []
+    for allergen in allergens:
+        a = allergen.lower()
+        if a in text or any(
+            len(w) >= 3 and (w in a or a in w) for w in expanded
+        ):
+            hits.append(allergen)
+    return hits
 
 
 def _connect(db_path):
@@ -171,7 +235,17 @@ def get_menu(category=None, db_path=None):
             rows = conn.execute(
                 "SELECT * FROM menu_items ORDER BY id"
             ).fetchall()
-        result = [dict(r) for r in rows]
+        result = []
+        for r in rows:
+            d = dict(r)
+            for key, out in (("ingredients_json", "ingredients"),
+                             ("allergens_json", "allergens")):
+                try:
+                    d[out] = json.loads(d.pop(key) or "[]")
+                except json.JSONDecodeError:
+                    d[out] = []
+            d["is_vegetarian"] = bool(d["is_vegetarian"])
+            result.append(d)
     finally:
         conn.close()
     _log(db_path, None, "get_menu", "get_menu",
@@ -208,13 +282,17 @@ def check_stock(menu_item_id, qty, db_path=None):
     return result
 
 
-def create_order(table_no, items, language, db_path=None):
+def create_order(table_no, items, language, db_path=None,
+                 allergy_notes="", dietary_notes=""):
     """Store a DRAFT order. Validates everything before inserting anything.
 
     Stock is checked but NOT deducted here — a draft is not a real order.
-    Deduction happens atomically in send_kitchen_ticket.
+    Deduction happens atomically in send_kitchen_ticket. Allergy notes
+    are matched against every ordered item's allergens; ANY conflict
+    rejects the whole order with the item name and allergen named.
     """
-    inputs = {"table_no": table_no, "language": language, "items": items}
+    inputs = {"table_no": table_no, "language": language, "items": items,
+              "allergy_notes": allergy_notes, "dietary_notes": dietary_notes}
     if not table_no or not isinstance(table_no, str):
         _fail(db_path, None, "create_order", inputs,
               "Nomor meja wajib diisi (string, mis. 'A12').")
@@ -235,7 +313,7 @@ def create_order(table_no, items, language, db_path=None):
         for item in items:
             menu_item_id = item.get("menu_item_id")
             qty = item.get("qty")
-            note = item.get("note", "") or ""
+            custom_note = item.get("custom_note") or item.get("note", "") or ""
             if not isinstance(qty, int) or qty <= 0:
                 _fail(db_path, None, "create_order", inputs,
                       f"Jumlah untuk item {menu_item_id} harus bilangan "
@@ -251,19 +329,30 @@ def create_order(table_no, items, language, db_path=None):
                 _fail(db_path, None, "create_order", inputs,
                       f"Stok '{row['name']}' tidak cukup: diminta {qty}, "
                       f"tersedia {row['stock']}.")
-            resolved.append((row["id"], qty, note))
+            allergens = json.loads(row["allergens_json"] or "[]")
+            conflicts = _allergy_conflicts(allergy_notes, allergens)
+            if conflicts:
+                _fail(db_path, None, "create_order", inputs,
+                      f"ALERGI: '{row['name']}' mengandung "
+                      f"{', '.join(conflicts)} yang bentrok dengan alergi "
+                      f"tamu ('{allergy_notes}'). Item ini ditolak — "
+                      "tawarkan alternatif dari menu, jangan loloskan.")
+            resolved.append((row["id"], qty, custom_note))
             total_idr += row["price_idr"] * qty
 
         cur = conn.execute(
-            "INSERT INTO orders (table_no, language, status)"
-            " VALUES (?, ?, 'draft')",
-            (table_no, language),
+            "INSERT INTO orders (table_no, language, status,"
+            " allergy_notes, dietary_notes)"
+            " VALUES (?, ?, 'draft', ?, ?)",
+            (table_no, language, allergy_notes or "",
+             dietary_notes or ""),
         )
         order_id = cur.lastrowid
         conn.executemany(
-            "INSERT INTO order_items (order_id, menu_item_id, qty, note)"
-            " VALUES (?, ?, ?, ?)",
-            [(order_id, mid, qty, note) for mid, qty, note in resolved],
+            "INSERT INTO order_items"
+            " (order_id, menu_item_id, qty, note, custom_note)"
+            " VALUES (?, ?, ?, ?, ?)",
+            [(order_id, mid, qty, note, note) for mid, qty, note in resolved],
         )
         conn.commit()
     finally:
@@ -313,7 +402,8 @@ def send_kitchen_ticket(order_id, db_path=None):
             conn.close()
             _fail(db_path, order_id, "send_kitchen_ticket", inputs, str(e))
         items = conn.execute(
-            "SELECT oi.qty, oi.note, mi.name, mi.stock, mi.id AS menu_item_id"
+            "SELECT oi.qty, oi.note, oi.custom_note, mi.name, mi.stock,"
+            " mi.id AS menu_item_id"
             " FROM order_items oi JOIN menu_items mi"
             " ON mi.id = oi.menu_item_id WHERE oi.order_id = ?",
             (order_id,),
@@ -341,15 +431,40 @@ def send_kitchen_ticket(order_id, db_path=None):
             (order_id,),
         )
         conn.commit()
+        # Rendered ticket text: allergy/diet notes FIRST and prominent —
+        # the kitchen reads fast under pressure, so safety info must be
+        # the first thing on the ticket, never a footnote.
+        lines = []
+        allergy = row["allergy_notes"] or ""
+        diet = row["dietary_notes"] or ""
+        if allergy or diet:
+            lines.append("⚠️  PERHATIAN ALERGI / PANTANGAN:")
+            if allergy:
+                lines.append(f"   ALERGI: {allergy}")
+            if diet:
+                lines.append(f"   PANTANGAN/DIET: {diet}")
+        else:
+            lines.append("Alergi/pantangan: tidak ada yang dicatat.")
+        lines.append(f"MEJA {row['table_no']} — TIKET #{ticket_id}")
+        for it in items:
+            line = f"  {it['qty']}x {it['name']}"
+            if it["custom_note"]:
+                line += f"  [{it['custom_note']}]"
+            lines.append(line)
         ticket = {
             "ticket_id": ticket_id,
             "order_id": order_id,
             "status": "open",
             "table_no": row["table_no"],
+            "allergy_notes": allergy,
+            "dietary_notes": diet,
             "items": [
-                {"name": it["name"], "qty": it["qty"], "note": it["note"]}
+                {"name": it["name"], "qty": it["qty"],
+                 "note": it["custom_note"],
+                 "custom_note": it["custom_note"]}
                 for it in items
             ],
+            "text": "\n".join(lines),
         }
     finally:
         conn.close()

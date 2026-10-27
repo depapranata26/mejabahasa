@@ -219,6 +219,50 @@ def _overstock_message(conn, mrow, qty):
     )
 
 
+def _parse_hhmm(value):
+    """Parse 'HH:MM' -> (hour, minute) or None if invalid."""
+    try:
+        h, m = value.split(":")
+        h, m = int(h), int(m)
+    except (AttributeError, ValueError):
+        return None
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        return None
+    return (h, m)
+
+
+def _now_hhmm():
+    import time
+    return time.strftime("%H:%M", time.localtime())
+
+
+def _in_window(now, frm, to):
+    """True if HH:MM 'now' falls in [frm, to). Null/degenerate = always.
+
+    Overnight windows (frm > to, e.g. 22:00-02:00) wrap past midnight.
+    Unparseable data never blocks an order (fail-open on bad data).
+    """
+    if not frm or not to:
+        return True
+    f, t, n = _parse_hhmm(frm), _parse_hhmm(to), _parse_hhmm(now)
+    if f is None or t is None or n is None:
+        return True
+    if f == t:
+        return True
+    if f < t:
+        return f <= n < t
+    return n >= f or n < t
+
+
+def _row_get(row, key, default=None):
+    """sqlite Row access tolerating databases predating a column."""
+    try:
+        keys = row.keys()
+    except AttributeError:
+        return default
+    return row[key] if key in keys else default
+
+
 def _connect(db_path):
     conn = sqlite3.connect(db_path or DATABASE_PATH)
     conn.row_factory = sqlite3.Row
@@ -272,12 +316,17 @@ def _require_status(row, expected, action):
 
 # ---------------------------------------------------------------- agent tools
 
-def get_menu(category=None, db_path=None):
-    """List menu items from the database, optionally filtered by category."""
+def get_menu(category=None, db_path=None, now=None):
+    """List menu items from the database, optionally filtered by category.
+
+    Each item carries available_now (time-window check against `now`,
+    defaulting to the wall clock) plus its available_from/available_to.
+    """
     if category is not None and category not in CATEGORIES:
         _fail(db_path, None, "get_menu", {"category": category},
               f"Kategori '{category}' tidak dikenal. "
               f"Pilihan: {', '.join(CATEGORIES)}.")
+    now_hhmm = now or _now_hhmm()
     conn = _connect(db_path)
     try:
         if category:
@@ -299,6 +348,8 @@ def get_menu(category=None, db_path=None):
                 except json.JSONDecodeError:
                     d[out] = []
             d["is_vegetarian"] = bool(d["is_vegetarian"])
+            d["available_now"] = _in_window(
+                now_hhmm, d.get("available_from"), d.get("available_to"))
             result.append(d)
     finally:
         conn.close()
@@ -337,7 +388,7 @@ def check_stock(menu_item_id, qty, db_path=None):
 
 
 def create_order(table_no, items, language, db_path=None,
-                 allergy_notes="", dietary_notes=""):
+                 allergy_notes="", dietary_notes="", now=None):
     """Store a DRAFT order. Validates everything before inserting anything.
 
     Stock is checked but NOT deducted here — a draft is not a real order.
@@ -358,6 +409,7 @@ def create_order(table_no, items, language, db_path=None,
         _fail(db_path, None, "create_order", inputs,
               "Order harus berisi minimal satu item.")
 
+    now_hhmm = now or _now_hhmm()
     conn = _connect(db_path)
     try:
         # Validate ALL items first: unknown item or bad qty rejects the
@@ -379,6 +431,12 @@ def create_order(table_no, items, language, db_path=None,
                 _fail(db_path, None, "create_order", inputs,
                       f"Item menu id {menu_item_id} tidak ada di database — "
                       "pesanan ditolak, tidak ditebak.")
+            frm = _row_get(row, "available_from")
+            to = _row_get(row, "available_to")
+            if not _in_window(now_hhmm, frm, to):
+                _fail(db_path, None, "create_order", inputs,
+                      f"'{row['name']}' hanya tersedia {frm}–{to} "
+                      f"(sekarang {now_hhmm}).")
             if row["stock"] < qty:
                 _fail(db_path, None, "create_order", inputs,
                       _overstock_message(conn, row, qty))
@@ -416,7 +474,7 @@ def create_order(table_no, items, language, db_path=None,
 
 
 def update_order(order_id, items, db_path=None, allergy_notes=None,
-                 dietary_notes=None):
+                 dietary_notes=None, now=None):
     """Revise a DRAFT order's items (guest changed their mind).
 
     Only drafts can be revised — confirmed/ACC/ticketed orders are
@@ -432,6 +490,7 @@ def update_order(order_id, items, db_path=None, allergy_notes=None,
     if not items or not isinstance(items, list):
         _fail(db_path, order_id, "update_order", inputs,
               "Order revisi harus berisi minimal satu item.")
+    now_hhmm = now or _now_hhmm()
     conn = _connect(db_path)
     try:
         row = _get_order(conn, order_id)
@@ -463,6 +522,13 @@ def update_order(order_id, items, db_path=None, allergy_notes=None,
                 _fail(db_path, order_id, "update_order", inputs,
                       f"Item menu id {menu_item_id} tidak ada di database — "
                       "pesanan ditolak, tidak ditebak.")
+            frm = _row_get(mrow, "available_from")
+            to = _row_get(mrow, "available_to")
+            if not _in_window(now_hhmm, frm, to):
+                conn.close()
+                _fail(db_path, order_id, "update_order", inputs,
+                      f"'{mrow['name']}' hanya tersedia {frm}–{to} "
+                      f"(sekarang {now_hhmm}).")
             if mrow["stock"] < qty:
                 msg = _overstock_message(conn, mrow, qty)
                 conn.close()

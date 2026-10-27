@@ -389,18 +389,31 @@ def request_acc(order_id, db_path=None):
 def send_kitchen_ticket(order_id, db_path=None):
     """Send the Indonesian kitchen ticket for an ACC-ACCEPTED order only.
 
-    Re-checks stock and deducts it in the same transaction, so a ticket
-    can never be sent for stock that is no longer there.
+    Race safety (two tables, one last portion): the whole
+    read-check-deduct sequence runs inside a single ``BEGIN IMMEDIATE``
+    transaction. The write lock is taken BEFORE reading stock, so a
+    concurrent ticket for the same last portion blocks here and then
+    re-reads post-commit stock — it gets a clean rejection, never a
+    negative stock. The conditional UPDATE (``stock >= qty`` + rowcount
+    check) is belt-and-suspenders on top of the lock.
     """
     inputs = {"order_id": order_id}
-    conn = _connect(db_path)
+    conn = sqlite3.connect(db_path or DATABASE_PATH, timeout=30.0)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.isolation_level = None  # autocommit; we manage BEGIN/COMMIT
+    ticket = None
     try:
-        row = _get_order(conn, order_id)
-        try:
-            _require_status(row, "acc_accepted", "mengirim tiket dapur")
-        except ValueError as e:
-            conn.close()
-            _fail(db_path, order_id, "send_kitchen_ticket", inputs, str(e))
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM orders WHERE id = ?", (order_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Order {order_id} tidak ditemukan.")
+        if row["status"] != "acc_accepted":
+            raise ValueError(
+                f"Tidak bisa mengirim tiket dapur: order {row['id']} "
+                f"berstatus '{row['status']}', harus 'acc_accepted'.")
         items = conn.execute(
             "SELECT oi.qty, oi.note, oi.custom_note, mi.name, mi.stock,"
             " mi.id AS menu_item_id"
@@ -409,16 +422,15 @@ def send_kitchen_ticket(order_id, db_path=None):
             (order_id,),
         ).fetchall()
         for it in items:
-            if it["stock"] < it["qty"]:
-                conn.close()
-                _fail(db_path, order_id, "send_kitchen_ticket", inputs,
-                      f"Stok '{it['name']}' tidak cukup saat kirim tiket: "
-                      f"diminta {it['qty']}, tersedia {it['stock']}.")
-        for it in items:
-            conn.execute(
-                "UPDATE menu_items SET stock = stock - ? WHERE id = ?",
-                (it["qty"], it["menu_item_id"]),
+            cur = conn.execute(
+                "UPDATE menu_items SET stock = stock - ?"
+                " WHERE id = ? AND stock >= ?",
+                (it["qty"], it["menu_item_id"], it["qty"]),
             )
+            if cur.rowcount != 1:
+                raise ValueError(
+                    f"Stok '{it['name']}' tidak cukup saat kirim tiket: "
+                    f"diminta {it['qty']}, tersedia {it['stock']}.")
         cur = conn.execute(
             "INSERT INTO kitchen_tickets (order_id, status)"
             " VALUES (?, 'open')",
@@ -430,7 +442,7 @@ def send_kitchen_ticket(order_id, db_path=None):
             " updated_at = datetime('now') WHERE id = ?",
             (order_id,),
         )
-        conn.commit()
+        conn.execute("COMMIT")
         # Rendered ticket text: allergy/diet notes FIRST and prominent —
         # the kitchen reads fast under pressure, so safety info must be
         # the first thing on the ticket, never a footnote.
@@ -466,8 +478,14 @@ def send_kitchen_ticket(order_id, db_path=None):
             ],
             "text": "\n".join(lines),
         }
-    finally:
+    except (ValueError, sqlite3.Error) as e:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
         conn.close()
+        _fail(db_path, order_id, "send_kitchen_ticket", inputs, str(e))
+    conn.close()
     _log(db_path, order_id, "send_kitchen_ticket", "send_kitchen_ticket",
          inputs, ticket)
     return ticket

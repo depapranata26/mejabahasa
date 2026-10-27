@@ -72,7 +72,15 @@ backend/
   __init__.py
   config.py            Konfigurasi dari environment (tanpa secret)
   provider.py          Interface provider model (Baseten utama, swappable)
-  tools.py             Spesifikasi & stub tools agen
+  tools.py             Tools agen (menu, stok, order, tiket, peracik budget,
+                       revisi, jendela waktu) + langkah manusia (konfirmasi,
+                       ACC) + lifecycle tiket
+  agent.py             Loop agen: model -> tool calls -> balasan bahasa tamu
+  server.py            Server demo stdlib: chat tamu, dashboard staf, dapur
+  report.py            Laporan operasional yang dihitung dari database
+  seed.py              Bangun/seed database (aman di-run ulang, migrasi)
+  test_*.py            Suite tes (ordering, alergi, race, server, budget,
+                       revisi, laporan, jendela waktu)
 data/
   schema.sql           Skema SQLite: menu, stok, pesanan, tiket, log aksi
 demo/

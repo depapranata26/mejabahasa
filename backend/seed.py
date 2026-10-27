@@ -23,6 +23,8 @@ _MIGRATIONS = {
         ("allergens_json", "TEXT NOT NULL DEFAULT '[]'"),
         ("spice_level", "TEXT NOT NULL DEFAULT 'tidak pedas'"),
         ("is_vegetarian", "INTEGER NOT NULL DEFAULT 0"),
+        ("available_from", "TEXT"),
+        ("available_to", "TEXT"),
     ],
     "orders": [
         ("allergy_notes", "TEXT NOT NULL DEFAULT ''"),
@@ -51,8 +53,9 @@ def _insert_menu(conn, menu):
     conn.executemany(
         "INSERT OR REPLACE INTO menu_items"
         " (id, name, category, price_idr, stock, description,"
-        "  ingredients_json, allergens_json, spice_level, is_vegetarian)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "  ingredients_json, allergens_json, spice_level, is_vegetarian,"
+        "  available_from, available_to)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
             (
                 it["id"],
@@ -65,6 +68,8 @@ def _insert_menu(conn, menu):
                 json.dumps(it.get("allergens", []), ensure_ascii=False),
                 it.get("spice_level", "tidak pedas"),
                 1 if it.get("is_vegetarian") else 0,
+                it.get("available_from"),
+                it.get("available_to"),
             )
             for it in menu["items"]
         ],

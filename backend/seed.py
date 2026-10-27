@@ -46,6 +46,31 @@ def _migrate(conn):
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
 
 
+def _insert_menu(conn, menu):
+    """INSERT OR REPLACE all menu rows (shared by create_db/ensure_db)."""
+    conn.executemany(
+        "INSERT OR REPLACE INTO menu_items"
+        " (id, name, category, price_idr, stock, description,"
+        "  ingredients_json, allergens_json, spice_level, is_vegetarian)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (
+                it["id"],
+                it["name"],
+                it["category"],
+                it["price_idr"],
+                it["stock"],
+                it.get("description", ""),
+                json.dumps(it.get("ingredients", []), ensure_ascii=False),
+                json.dumps(it.get("allergens", []), ensure_ascii=False),
+                it.get("spice_level", "tidak pedas"),
+                1 if it.get("is_vegetarian") else 0,
+            )
+            for it in menu["items"]
+        ],
+    )
+
+
 def create_db(db_path, schema_path=None, menu_path=None):
     schema_path = Path(schema_path or REPO_ROOT / "data" / "schema.sql")
     menu_path = Path(menu_path or REPO_ROOT / "demo" / "menu.json")
@@ -57,29 +82,37 @@ def create_db(db_path, schema_path=None, menu_path=None):
     try:
         conn.executescript(schema)
         _migrate(conn)
-        conn.executemany(
-            "INSERT OR REPLACE INTO menu_items"
-            " (id, name, category, price_idr, stock, description,"
-            "  ingredients_json, allergens_json, spice_level, is_vegetarian)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                (
-                    it["id"],
-                    it["name"],
-                    it["category"],
-                    it["price_idr"],
-                    it["stock"],
-                    it.get("description", ""),
-                    json.dumps(it.get("ingredients", []), ensure_ascii=False),
-                    json.dumps(it.get("allergens", []), ensure_ascii=False),
-                    it.get("spice_level", "tidak pedas"),
-                    1 if it.get("is_vegetarian") else 0,
-                )
-                for it in menu["items"]
-            ],
-        )
+        _insert_menu(conn, menu)
         conn.commit()
         count = conn.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0]
+    finally:
+        conn.close()
+    return count
+
+
+def ensure_db(db_path):
+    """Create schema + migrate + seed menu ONLY if the menu is empty.
+
+    Unlike create_db (which resets stock via INSERT OR REPLACE), this is
+    safe to run on every server start: existing rows and stock levels
+    are never touched.
+    """
+    db_path = Path(db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    schema = (REPO_ROOT / "data" / "schema.sql").read_text(encoding="utf-8")
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(schema)
+        _migrate(conn)
+        count = conn.execute("SELECT COUNT(*) FROM menu_items").fetchone()[0]
+        if count == 0:
+            menu = json.loads(
+                (REPO_ROOT / "demo" / "menu.json").read_text(encoding="utf-8")
+            )
+            _insert_menu(conn, menu)
+            count = conn.execute(
+                "SELECT COUNT(*) FROM menu_items").fetchone()[0]
+        conn.commit()
     finally:
         conn.close()
     return count

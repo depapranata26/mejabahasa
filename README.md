@@ -74,7 +74,15 @@ backend/
   __init__.py
   config.py            Configuration from environment (no secrets)
   provider.py          Model provider interface (Baseten primary, swappable)
-  tools.py             Agent tool specs & stubs
+  tools.py             Agent tools (menu, stock, orders, tickets, budget
+                       composer, revision, time windows) + human steps
+                       (confirm, ACC) + ticket lifecycle
+  agent.py             Agent loop: model -> tool calls -> reply in guest language
+  server.py            Stdlib demo server: guest chat, staff dashboard, kitchen
+  report.py            Operational report computed from the database
+  seed.py              Build/seed the database (safe re-runs, migrations)
+  test_*.py            Test suites (ordering, allergy, race, server, budget,
+                       revision, report, time windows)
 data/
   schema.sql           SQLite schema: menu, stock, orders, tickets, action log
 demo/

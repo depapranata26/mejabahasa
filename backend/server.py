@@ -532,7 +532,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def make_server(port, db_path):
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    # Bind 0.0.0.0 (bukan loopback): platform hosting seperti Render
+    # meneruskan traffic dari luar ke $PORT; bind loopback akan
+    # membuat service tidak bisa dijangkau dan health check gagal.
+    httpd = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     httpd.daemon_threads = True
     httpd.db_path = db_path
     return httpd

@@ -5,7 +5,8 @@ Serves the three faces of the same SQLite database:
   GET  /          guest chat (talks to the agent via POST /api/chat)
   GET  /staff     staff dashboard (order queue, ACC, send ticket)
   GET  /kitchen   kitchen display (ticket lifecycle)
-  GET  /api/menu, /api/orders, /api/tickets
+  GET  /koordinator  floor coordinator plan (who cooks/makes/delivers what)
+  GET  /api/menu, /api/orders, /api/tickets, /api/plan
   POST /api/chat, /api/orders,
        /api/orders/<id>/confirm | request_acc | acc | ticket,
        /api/tickets/<id>/status
@@ -22,12 +23,12 @@ import sqlite3
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from backend import complaints, menu_admin, queue_estimate, report, seed, tools  # noqa: E402
+from backend import complaints, coordinator, menu_admin, queue_estimate, report, seed, tools  # noqa: E402
 from backend.config import DATABASE_PATH  # noqa: E402
 
 CSS = """
@@ -115,9 +116,9 @@ async function pollOrder(){if(!lastOrder)return;
   document.getElementById('statusBox').innerHTML='<div class="card">📍 Status pesanan #'+
     o.id+': <b>'+esc(orderLabel(o))+'</b></div>';
   if(o.estimate&&o.estimate.estimated_minutes>0){
+    let bn=o.estimate.bottleneck_station?(' (stasiun tersibuk: '+esc(o.estimate.bottleneck_station)+')'):'';
     document.getElementById('statusBox').innerHTML+='<div class="card">⏱️ Perkiraan siap: ~'+
-      o.estimate.estimated_minutes+' menit (antrean ke-'+o.estimate.position+', '+
-      o.estimate.tickets_ahead+' tiket di depan).</div>'}
+      o.estimate.estimated_minutes+' menit'+bn+'.</div>'}
   if(o.status==='done'||o.status==='acc_rejected'){
     clearInterval(statusTimer);statusTimer=null}}
 function startStatusPoll(){if(statusTimer)clearInterval(statusTimer);
@@ -149,6 +150,7 @@ STAFF_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 <title>MejaBahasa — Dashboard Staf</title><style>""" + CSS + """</style></head>
 <body><h1>🧑‍🍳 Dashboard Staf</h1><p class="muted">Antrean order masuk.
 ACC pesanan tamu, lalu kirim tiket ke dapur. Memperbarui otomatis.</p>
+<p><a href="/koordinator">📋 Koordinator lapangan</a> · <a href="/kitchen">Dapur</a></p>
 <div id="list"></div>
 <h2>📣 Keluhan tamu</h2>
 <div id="complaints"></div>
@@ -226,6 +228,7 @@ KITCHEN_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 <title>MejaBahasa — Dapur</title><style>""" + CSS + """</style></head>
 <body><h1>🔥 Dapur</h1><p class="muted">Tiket masuk dari staf.
 Ubah statusnya seiring masakan berjalan. Memperbarui otomatis.</p>
+<p><a href="/koordinator">📋 Koordinator lapangan</a> · <a href="/staff">Dashboard staf</a></p>
 <div id="list"></div>
 <script>
 function esc(s){return String(s).replace(/[&<>"']/g,
@@ -249,6 +252,38 @@ async function refresh(){let d=await fetch('/api/tickets').then(r=>r.json());
     html+='</div>'}
   document.getElementById('list').innerHTML=html||'<p class="muted">Belum ada tiket.</p>'}
 async function setStatus(id,st){await api('/api/tickets/'+id+'/status',{status:st});refresh()}
+refresh();setInterval(refresh,3000);
+</script></body></html>"""
+
+KOORDINATOR_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MejaBahasa — Koordinator Lapangan</title><style>""" + CSS + """</style></head>
+<body><h1>📋 Koordinator Lapangan</h1><p class="muted">Siapa masak/buat/antar
+apa, untuk meja mana, dan target siapnya. Dihitung dari tiket live —
+bukan karangan. Memperbarui otomatis.</p>
+<div id="plan"></div>
+<script>
+function esc(s){return String(s).replace(/[&<>"']/g,
+  c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+async function refresh(){let d=await fetch('/api/plan').then(r=>r.json());
+  if(!d.ok)return;let html='<h2>🎯 Target per meja</h2>';
+  if(!d.orders.length)html+='<p class="muted">Belum ada tiket aktif.</p>';
+  for(let o of d.orders){
+    let label=o.ticket_status==='ready'?'Siap, menunggu diantar ✅':
+      'Target ~'+o.target_minutes+' menit'+
+      (o.bottleneck_station?' (stasiun tersibuk: '+o.bottleneck_station+')':'');
+    html+='<div class="card">Meja <b>'+esc(o.table_no)+'</b> (order #'+o.order_id+
+      '): '+esc(label)+'</div>'}
+  html+='<h2>👨‍🍳 Tugas per orang</h2>';
+  for(let m of d.members){
+    html+='<div class="card"><b>'+esc(m.member)+'</b> ('+esc(m.station)+
+      ', beban '+m.load_minutes+' menit)<br>';
+    if(!m.tasks.length)html+='<span class="muted">Tidak ada tugas.</span>';
+    for(let t of m.tasks){
+      html+='Meja '+esc(t.table_no)+' · '+esc(t.item)+' x'+t.qty+
+        ' · '+t.start_minutes+'–'+t.finish_minutes+' menit<br>'}
+    html+='</div>'}
+  document.getElementById('plan').innerHTML=html}
 refresh();setInterval(refresh,3000);
 </script></body></html>"""
 
@@ -391,6 +426,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(200, STAFF_HTML)
             elif path == "/kitchen":
                 self._send_html(200, KITCHEN_HTML)
+            elif path == "/koordinator":
+                self._send_html(200, KOORDINATOR_HTML)
+            elif path == "/api/plan":
+                table = parse_qs(
+                    urlsplit(self.path).query).get("table", [None])[0]
+                self._send_json(200, coordinator.build_plan(
+                    self.db_path, table_no=table))
             elif path == "/api/menu":
                 self._send_json(200, {"items": tools.get_menu(
                     db_path=self.db_path)})
@@ -562,6 +604,7 @@ def main(argv):
     print(f"  tamu:    http://127.0.0.1:{port}/")
     print(f"  staf:    http://127.0.0.1:{port}/staff")
     print(f"  dapur:   http://127.0.0.1:{port}/kitchen")
+    print(f"  koordinator: http://127.0.0.1:{port}/koordinator")
     make_server(port, db_path).serve_forever()
     return 0
 

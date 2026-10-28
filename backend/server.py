@@ -67,7 +67,7 @@ async function send(){let inp=document.getElementById('msg');
   let text=inp.value.trim();if(!text)return;inp.value='';
   show('Kamu',text);history.push({role:'user',content:text});
   let data=await api('/api/chat',{table_no:document.getElementById('table').value,
-    message:text,history:history.slice(0,-1)});
+    message:text,history:history.slice(0,-1),last_order_id:lastOrder});
   if(!data.ok){show('Sistem','Maaf, terjadi kesalahan: '+esc(data.error));return}
   show('MejaBahasa',data.reply);history.push({role:'assistant',content:data.reply});
   if(data.last_order_id){lastOrder=data.last_order_id;
@@ -326,7 +326,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         result = agent.run_turn(
             body["message"], table_no=body.get("table_no", "A12"),
-            history=body.get("history") or [], db_path=self.db_path)
+            history=body.get("history") or [], db_path=self.db_path,
+            draft_order_id=body.get("last_order_id"))
         last_order_id = None
         for call in result.get("tool_calls") or []:
             if call.get("tool") == "create_order":

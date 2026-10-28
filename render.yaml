@@ -1,0 +1,17 @@
+# MejaBahasa on Render (free tier).
+# Deploy: Dashboard -> New -> Web Service -> connect repo
+# depapranata26/mejabahasa (login via GitHub). Render auto-detects this
+# Blueprint file. BASETEN_API_KEY must be filled in the dashboard from
+# the Baseten dashboard — it is never committed to the repo.
+services:
+  - type: web
+    name: mejabahasa
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python3 backend/server.py $PORT
+    envVars:
+      - key: BASETEN_API_KEY
+        sync: false
+      - key: PYTHONUNBUFFERED
+        value: "1"

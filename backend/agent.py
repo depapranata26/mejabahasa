@@ -50,6 +50,9 @@ HARD RULES — violating any of these is a failure:
    the guest confirms and staff approves (ACC) — those are human steps the
    guest/staff take in the UI, not something you can skip or fake. When a
    draft is created, tell the guest what is in it and ask them to confirm.
+   Never tell the guest an order is recorded, created, noted, or saved
+   until create_order has actually returned — while you are still asking
+   questions, say plainly nothing has been created yet.
 5. Never call a tool with an id you have not seen in a tool result.
 6. If a tool call returns an error, tell the guest what went wrong in their
    language and ask how they want to proceed — do not retry with a guessed
@@ -77,7 +80,9 @@ HARD RULES — violating any of these is a failure:
     quantity and alternatives, negotiate — offer the available quantity,
     an alternative, or cancellation. Never silently reduce a quantity,
     and never promise stock you do not have. When the guest agrees to a
-    change to a DRAFT order, call update_order (drafts only).
+    change to a DRAFT order, call update_order (drafts only). The active
+    draft's order_id is given in the session context when one exists —
+    use exactly that id, never guess one.
 13. TIME WINDOWS: get_menu reports available_now per item. Never order an
     item outside its window — if a guest asks for one, say plainly when
     it becomes available and offer an available alternative.
@@ -278,15 +283,31 @@ def _execute(name, args, db_path):
 
 
 def run_turn(user_message, table_no="A12", history=None, db_path=None,
-             max_iterations=4):
+             max_iterations=4, draft_order_id=None):
     """One guest turn: returns {reply, tool_calls, path}.
 
     ``path`` is "tool_calls" when the model used native tool_calls,
     "json_fallback" when it used a ```json action block, "direct" when it
     answered without any tool use.
+
+    ``draft_order_id`` is the session's active draft (the server passes
+    the client's last_order_id). Without it the model can never learn a
+    draft's id — history carries only reply texts — so update_order
+    would be unreachable in production. The id is injected as a system
+    message, never guessed by the model.
     """
     _CTX["table_no"] = table_no
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if draft_order_id is not None:
+        messages.append({
+            "role": "system",
+            "content": (
+                f"Session context: this guest has an active DRAFT order "
+                f"with order_id {draft_order_id}. If the guest asks to "
+                f"change their order, call update_order with exactly this "
+                f"order_id. Do not invent any other order_id."
+            ),
+        })
     messages.extend(history or [])
     messages.append({"role": "user", "content": user_message})
     executed = []

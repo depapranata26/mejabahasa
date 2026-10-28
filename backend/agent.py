@@ -30,9 +30,11 @@ from dynamic_credentials import add_surrogate_to_request, read_json_response
 try:
     from backend import tools as tools_mod
     from backend import queue_estimate as queue_mod
+    from backend import coordinator as coord_mod
 except ImportError:  # direct script execution from inside backend/
     import tools as tools_mod
     import queue_estimate as queue_mod
+    import coordinator as coord_mod
 
 MODEL = "meta-models/muse-spark-open-1026"
 BASE_URL = "https://inference.baseten.co/v1"
@@ -93,6 +95,10 @@ HARD RULES — violating any of these is a failure:
     (order_id for an existing order, items for a hypothetical one, or
     nothing for the current kitchen backlog) and quote its number as an
     estimate ("perkiraan"), never as a promise.
+15. COORDINATOR: when anyone asks who cooks, makes, or delivers what,
+    or when a table will be ready, call coordinator_plan (table_no to
+    narrow to one table) and quote its assignments and targets. Never
+    invent staff assignments, task splits, or ready times.
 
 When you need data, call a tool. When you have everything, reply to the
 guest concisely in their language.
@@ -236,6 +242,19 @@ OPENAI_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "coordinator_plan",
+            "description": "The floor coordinator plan: which staff member cooks, makes, or delivers what, for which table, and each table's target ready time. Computed deterministically from live tickets — never invent assignments or times. Pass table_no to narrow the view to one table (targets stay queue-aware). Call this when staff ask who does what, or when anyone asks when a table's food will be ready.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table_no": {"type": "string"},
+                },
+            },
+        },
+    },
 ]
 
 _TOOL_DISPATCH = {
@@ -274,6 +293,8 @@ _TOOL_DISPATCH = {
         if args.get("items")
         else queue_mod.estimate_backlog(db)
     ) or {"ok": False, "error": "order tidak ditemukan"},
+    "coordinator_plan": lambda args, db: coord_mod.build_plan(
+        db, table_no=args.get("table_no")),
 }
 
 _CTX = {"table_no": "A12"}

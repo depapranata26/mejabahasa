@@ -1,0 +1,2 @@
+# MejaBahasa uses only the Python standard library — no dependencies.
+# This file exists so Render's Python build step has something to install.

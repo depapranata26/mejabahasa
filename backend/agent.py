@@ -29,8 +29,10 @@ from dynamic_credentials import add_surrogate_to_request, read_json_response
 
 try:
     from backend import tools as tools_mod
+    from backend import queue_estimate as queue_mod
 except ImportError:  # direct script execution from inside backend/
     import tools as tools_mod
+    import queue_estimate as queue_mod
 
 MODEL = "meta-models/muse-spark-open-1026"
 BASE_URL = "https://inference.baseten.co/v1"
@@ -86,6 +88,11 @@ HARD RULES — violating any of these is a failure:
 13. TIME WINDOWS: get_menu reports available_now per item. Never order an
     item outside its window — if a guest asks for one, say plainly when
     it becomes available and offer an available alternative.
+14. WAIT ESTIMATES: never invent a wait time. When a guest asks how long
+    food takes or when their order will be ready, call estimate_wait
+    (order_id for an existing order, items for a hypothetical one, or
+    nothing for the current kitchen backlog) and quote its number as an
+    estimate ("perkiraan"), never as a promise.
 
 When you need data, call a tool. When you have everything, reply to the
 guest concisely in their language.
@@ -205,6 +212,30 @@ OPENAI_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "estimate_wait",
+            "description": "Estimate how long until food is ready, computed from the LIVE kitchen ticket queue (tickets ahead + demo prep times). NEVER guess or invent a wait time — always call this when the guest asks how long something takes. Pass order_id for an existing order, items for a hypothetical new order, or nothing for the current kitchen backlog. Quote the result as an estimate (perkiraan), never as a promise.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "order_id": {"type": "integer"},
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "menu_item_id": {"type": "integer"},
+                                "qty": {"type": "integer"},
+                            },
+                            "required": ["menu_item_id", "qty"],
+                        },
+                    },
+                },
+            },
+        },
+    },
 ]
 
 _TOOL_DISPATCH = {
@@ -236,6 +267,13 @@ _TOOL_DISPATCH = {
         allergy_notes=args.get("allergy_notes"),
         dietary_notes=args.get("dietary_notes"),
     ),
+    "estimate_wait": lambda args, db: (
+        queue_mod.estimate_for_order(db, args["order_id"])
+        if args.get("order_id") is not None
+        else queue_mod.estimate_new_order(db, args["items"])
+        if args.get("items")
+        else queue_mod.estimate_backlog(db)
+    ) or {"ok": False, "error": "order tidak ditemukan"},
 }
 
 _CTX = {"table_no": "A12"}

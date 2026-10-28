@@ -53,6 +53,25 @@ CREATE TABLE IF NOT EXISTS kitchen_tickets (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Complaint tracker (masalah restoran #10): tamu lapor, staf triase.
+-- Urgency is classified deterministically at creation (see
+-- backend/complaints.py); staff only moves the status forward:
+--   open -> handling -> resolved
+CREATE TABLE IF NOT EXISTS complaints (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_no TEXT NOT NULL,
+    order_id INTEGER REFERENCES orders(id),
+    message TEXT NOT NULL,
+    urgency TEXT NOT NULL DEFAULT 'rendah'
+        CHECK (urgency IN ('rendah', 'sedang', 'tinggi')),
+    status TEXT NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'handling', 'resolved')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_complaints_queue ON complaints(status, id);
+
 -- Audit log: EVERY agent tool call is recorded here (input + output).
 CREATE TABLE IF NOT EXISTS agent_action_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

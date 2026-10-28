@@ -27,7 +27,7 @@ from urllib.parse import urlsplit
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from backend import complaints, menu_admin, report, seed, tools  # noqa: E402
+from backend import complaints, menu_admin, queue_estimate, report, seed, tools  # noqa: E402
 from backend.config import DATABASE_PATH  # noqa: E402
 
 CSS = """
@@ -114,6 +114,10 @@ async function pollOrder(){if(!lastOrder)return;
   if(!d.ok)return;let o=d.order;
   document.getElementById('statusBox').innerHTML='<div class="card">📍 Status pesanan #'+
     o.id+': <b>'+esc(orderLabel(o))+'</b></div>';
+  if(o.estimate&&o.estimate.estimated_minutes>0){
+    document.getElementById('statusBox').innerHTML+='<div class="card">⏱️ Perkiraan siap: ~'+
+      o.estimate.estimated_minutes+' menit (antrean ke-'+o.estimate.position+', '+
+      o.estimate.tickets_ahead+' tiket di depan).</div>'}
   if(o.status==='done'||o.status==='acc_rejected'){
     clearInterval(statusTimer);statusTimer=null}}
 function startStatusPoll(){if(statusTimer)clearInterval(statusTimer);
@@ -309,6 +313,8 @@ def get_order_detail(db_path, order_id):
             "items": [{"name": i["name"], "qty": i["qty"],
                        "custom_note": i["custom_note"],
                        "price_idr": i["price_idr"]} for i in items],
+            "estimate": queue_estimate.estimate_for_order(
+                db_path, o["id"]),
         }
     finally:
         conn.close()

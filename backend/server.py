@@ -47,15 +47,17 @@ GUEST_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MejaBahasa — Pesan dari Meja</title><style>""" + CSS + """</style></head>
 <body><h1>🍽️ MejaBahasa</h1><p class="muted">Scan QR meja, lalu pesan
-dengan bahasa kamu sendiri — ketik atau bicara. AI mendeteksi bahasanya
+dengan bahasa kamu sendiri. AI mendeteksi bahasanya
 otomatis.</p>
 <label>Nomor meja <input id="table" value="A12"></label>
 <div id="log"></div>
 <div id="actions"></div>
 <input id="msg" placeholder="Tulis pesananmu di sini…">
-<button class="primary" onclick="send()">Kirim</button>
+<button id="sendBtn" class="primary" onclick="send()">Kirim</button>
 <script>
 let history=[];let lastOrder=null;
+let qrTable=new URLSearchParams(location.search).get('table');
+if(qrTable)document.getElementById('table').value=qrTable;
 function esc(s){return String(s).replace(/[&<>"']/g,
   c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function show(role,text){let d=document.createElement('div');d.className='msg';
@@ -64,16 +66,24 @@ async function api(path,body){let r=await fetch(path,{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
   return r.json()}
 async function send(){let inp=document.getElementById('msg');
-  let text=inp.value.trim();if(!text)return;inp.value='';
-  show('Kamu',text);history.push({role:'user',content:text});
-  let data=await api('/api/chat',{table_no:document.getElementById('table').value,
-    message:text,history:history.slice(0,-1),last_order_id:lastOrder});
-  if(!data.ok){show('Sistem','Maaf, terjadi kesalahan: '+esc(data.error));return}
-  show('MejaBahasa',data.reply);history.push({role:'assistant',content:data.reply});
-  if(data.last_order_id){lastOrder=data.last_order_id;
-    document.getElementById('actions').innerHTML='<p class="muted">Pesanan draft #'+
-    lastOrder+' dibuat. Tekan Konfirmasi kalau sudah benar.</p>'+
-    '<button class="primary" onclick="confirmOrder()">Konfirmasi pesanan</button>'}}
+  let text=inp.value.trim();if(!text)return;
+  let btn=document.getElementById('sendBtn');
+  if(btn.disabled)return;
+  btn.disabled=true;inp.disabled=true;
+  let log=document.getElementById('log');
+  let typing=document.createElement('div');typing.className='msg muted';
+  typing.textContent='MejaBahasa sedang mengetik…';log.appendChild(typing);
+  try{inp.value='';
+    show('Kamu',text);history.push({role:'user',content:text});
+    let data=await api('/api/chat',{table_no:document.getElementById('table').value,
+      message:text,history:history.slice(0,-1),last_order_id:lastOrder});
+    if(!data.ok){show('Sistem','Maaf, terjadi kesalahan: '+esc(data.error));return}
+    show('MejaBahasa',data.reply);history.push({role:'assistant',content:data.reply});
+    if(data.last_order_id){lastOrder=data.last_order_id;
+      document.getElementById('actions').innerHTML='<p class="muted">Pesanan draft #'+
+      lastOrder+' dibuat. Tekan Konfirmasi kalau sudah benar.</p>'+
+      '<button class="primary" onclick="confirmOrder()">Konfirmasi pesanan</button>'}}
+  finally{typing.remove();btn.disabled=false;inp.disabled=false;inp.focus()}}
 async function confirmOrder(){let d=await api('/api/orders/'+lastOrder+'/confirm');
   if(!d.ok){show('Sistem','Gagal konfirmasi: '+esc(d.error));return}
   show('Sistem','Pesanan dikonfirmasi. Meminta ACC staf…');

@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""Tests for the kitchen-queue wait estimate (masalah restoran #9).
+"""Tests for the guest wait estimate (masalah restoran #9), now computed
+from the coordinator's PARALLEL station plan (not the old sequential
+model): dapur/bar tasks run on their own members, so a bar order never
+waits for a dapur ticket ahead of it.
 
-Covers the deterministic estimator module, the agent tool dispatch
-(no model calls), and the live endpoint + guest-page display code via
-an in-process server on an ephemeral port against an isolated temp DB.
-
-Model (see backend/queue_estimate.py): kitchen works tickets
-SEQUENTIALLY in creation order; a ticket's prep = sum(qty *
-prep_minutes) from demo/menu.json (Nasi Goreng 15, Es Teh 3,
-Mie Goreng 12). An order without a ticket joins the queue last.
+Roster (demo): dapur = Juru Masak 1/2, bar = Barista.
+Prep (demo/menu.json): Nasi Goreng 15, Es Teh 3, Mie Goreng 12.
 
 Usage: python3 backend/test_queue_estimate.py   (from the repo root)
 Exit code 0 only if all checks pass.
@@ -81,10 +78,10 @@ def main():
     print("[1] estimator modul: antrean kosong + fallback prep")
     e = queue_estimate.estimate_new_order(
         db, [{"menu_item_id": 1, "qty": 1}])
-    check("antrean kosong: hanya prep sendiri (15)",
-          e["estimated_minutes"] == 15 and e["position"] == 1
-          and e["tickets_ahead"] == 0 and e["queue_ahead_minutes"] == 0,
-          str(e))
+    check("antrean kosong: hanya prep sendiri (15, dapur)",
+          e["estimated_minutes"] == 15
+          and e["bottleneck_station"] == "dapur"
+          and e["own_prep_minutes"] == 15, str(e))
     b = queue_estimate.estimate_backlog(db)
     check("backlog kosong: 0 tiket, 0 menit",
           b["unfinished_tickets"] == 0 and b["backlog_minutes"] == 0, str(b))
@@ -104,7 +101,7 @@ def main():
     check("tool dispatch tanpa argumen -> backlog",
           d2.get("ok") is True and "backlog_minutes" in d2, str(d2))
 
-    print("[2] endpoint + antrean hidup via server in-process")
+    print("[2] endpoint + antrean paralel via server in-process")
     httpd = server.make_server(0, db)
     port = httpd.server_address[1]
     base = f"http://127.0.0.1:{port}"
@@ -116,41 +113,39 @@ def main():
                    "items": [{"menu_item_id": 1, "qty": 1}]})["order_id"]
         make_ticket(base, oa)
         d = get_order(base, oa)
-        check("tiket pertama: estimasi = prep sendiri 15, posisi 1",
+        check("tiket dapur pertama: estimasi 15 (dapur)",
               d["estimate"]["estimated_minutes"] == 15
-              and d["estimate"]["position"] == 1
-              and d["estimate"]["tickets_ahead"] == 0, str(d["estimate"]))
+              and d["estimate"]["bottleneck_station"] == "dapur",
+              str(d["estimate"]))
         ob = post(base, "/api/orders",
                   {"table_no": "B8", "language": "id",
                    "items": [{"menu_item_id": 9, "qty": 2}]})["order_id"]
         make_ticket(base, ob)
         d = get_order(base, ob)
-        check("tiket kedua: 15 (depan) + 6 (sendiri) = 21, posisi 2",
-              d["estimate"]["estimated_minutes"] == 21
-              and d["estimate"]["position"] == 2
-              and d["estimate"]["tickets_ahead"] == 1, str(d["estimate"]))
+        check("tiket bar TIDAK menunggu dapur: estimasi 6 (bar), bukan 21",
+              d["estimate"]["estimated_minutes"] == 6
+              and d["estimate"]["bottleneck_station"] == "bar",
+              str(d["estimate"]))
         oc = post(base, "/api/orders",
                   {"table_no": "B9", "language": "id",
                    "items": [{"menu_item_id": 2, "qty": 1}]})["order_id"]
         d = get_order(base, oc)
-        check("draf tanpa tiket: antre paling belakang, 15+6+12=33",
-              d["estimate"]["estimated_minutes"] == 33
-              and d["estimate"]["position"] == 3
-              and d["estimate"]["tickets_ahead"] == 2, str(d["estimate"]))
+        check("draf tanpa tiket: hipotesis di akhir antrean dapur (JM2 bebas) = 12",
+              d["estimate"]["estimated_minutes"] == 12
+              and d["estimate"]["bottleneck_station"] == "dapur",
+              str(d["estimate"]))
+        make_ticket(base, oc)
+        d = get_order(base, oc)
+        check("tiket dapur kedua PARALEL di JM2: target 12, bukan 27 sekuensial",
+              d["estimate"]["estimated_minutes"] == 12, str(d["estimate"]))
         tickets = req("GET", base, "/api/tickets")[1]["tickets"]
         tid_a = [t for t in tickets if t["order_id"] == oa][0]["ticket_id"]
         tid_b = [t for t in tickets if t["order_id"] == ob][0]["ticket_id"]
         post(base, f"/api/tickets/{tid_a}/status", {"status": "cooking"})
         d = get_order(base, ob)
-        check("tiket depan cooking tetap dihitung di depan",
-              d["estimate"]["estimated_minutes"] == 21, str(d["estimate"]))
-        d = get_order(base, oa)
-        check("tiket sendiri cooking: hanya prep sendiri",
-              d["estimate"]["estimated_minutes"] == 15, str(d["estimate"]))
-        post(base, f"/api/tickets/{tid_a}/status", {"status": "ready"})
-        d = get_order(base, ob)
-        check("tiket depan ready -> tak lagi antre, sisa prep sendiri 6",
+        check("tiket dapur cooking tidak mengubah estimasi bar (6)",
               d["estimate"]["estimated_minutes"] == 6, str(d["estimate"]))
+        post(base, f"/api/tickets/{tid_a}/status", {"status": "ready"})
         d = get_order(base, oa)
         check("tiket ready -> estimasi 0",
               d["estimate"]["estimated_minutes"] == 0, str(d["estimate"]))

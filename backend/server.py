@@ -27,7 +27,7 @@ from urllib.parse import urlsplit
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from backend import report, seed, tools  # noqa: E402
+from backend import complaints, menu_admin, report, seed, tools  # noqa: E402
 from backend.config import DATABASE_PATH  # noqa: E402
 
 CSS = """
@@ -52,10 +52,15 @@ otomatis.</p>
 <label>Nomor meja <input id="table" value="A12"></label>
 <div id="log"></div>
 <div id="actions"></div>
+<div id="statusBox"></div>
 <input id="msg" placeholder="Tulis pesananmu di sini…">
 <button id="sendBtn" class="primary" onclick="send()">Kirim</button>
+<div style="margin-top:16px">
+<input id="complaintMsg" placeholder="Ada keluhan? Tulis di sini…">
+<button onclick="sendComplaint()">Laporkan keluhan</button>
+<div id="complaintStatus" class="muted"></div></div>
 <script>
-let history=[];let lastOrder=null;
+let history=[];let lastOrder=null;let statusTimer=null;let complaintTimer=null;
 let qrTable=new URLSearchParams(location.search).get('table');
 if(qrTable)document.getElementById('table').value=qrTable;
 function esc(s){return String(s).replace(/[&<>"']/g,
@@ -90,7 +95,47 @@ async function confirmOrder(){let d=await api('/api/orders/'+lastOrder+'/confirm
   let d2=await api('/api/orders/'+lastOrder+'/request_acc');
   show('Sistem',d2.ok?'Menunggu ACC staf. Dapur akan menerima tiket setelah staf menyetujui.'
     :'Gagal minta ACC: '+esc(d2.error));
-  document.getElementById('actions').innerHTML=''}
+  document.getElementById('actions').innerHTML='';
+  if(d2.ok)startStatusPoll()}
+function orderLabel(o){if(o.status==='acc_rejected')
+  return '❌ Ditolak staf — silakan chat lagi untuk pesan ulang.';
+  if(o.status==='done'||o.ticket_status==='served')
+    return '✅ Selesai disajikan. Selamat menikmati!';
+  if(o.ticket_status==='ready')return '🍽️ Siap diantar ke meja kamu.';
+  if(o.ticket_status==='cooking')return '🔥 Sedang dimasak di dapur.';
+  if(o.ticket_status==='open')return '🧑‍🍳 Tiket sudah di dapur, menunggu dimasak.';
+  if(o.status==='sent_to_kitchen')return '📨 Tiket dikirim ke dapur.';
+  if(o.status==='acc_accepted')return '✅ Diterima staf, menunggu tiket dapur.';
+  if(o.status==='acc_pending'||o.status==='confirmed')
+    return '⏳ Menunggu ACC staf…';
+  return '📝 Draft dibuat.'}
+async function pollOrder(){if(!lastOrder)return;
+  let d=await fetch('/api/orders/'+lastOrder).then(r=>r.json());
+  if(!d.ok)return;let o=d.order;
+  document.getElementById('statusBox').innerHTML='<div class="card">📍 Status pesanan #'+
+    o.id+': <b>'+esc(orderLabel(o))+'</b></div>';
+  if(o.status==='done'||o.status==='acc_rejected'){
+    clearInterval(statusTimer);statusTimer=null}}
+function startStatusPoll(){if(statusTimer)clearInterval(statusTimer);
+  pollOrder();statusTimer=setInterval(pollOrder,5000)}
+async function sendComplaint(){let inp=document.getElementById('complaintMsg');
+  let text=inp.value.trim();if(!text)return;inp.value='';
+  let box=document.getElementById('complaintStatus');
+  let d=await api('/api/complaints',
+    {table_no:document.getElementById('table').value,
+     order_id:lastOrder,message:text});
+  if(!d.ok){box.textContent='Gagal kirim keluhan: '+d.error;return}
+  let cid=d.id;
+  box.textContent='Keluhan #'+cid+' diterima (urgensi: '+d.urgency+
+    '). Staf akan menindaklanjuti.';
+  if(complaintTimer)clearInterval(complaintTimer);
+  complaintTimer=setInterval(async ()=>{
+    let c=await fetch('/api/complaints/'+cid).then(r=>r.json());
+    if(!c.ok)return;let s=c.complaint.status;
+    let label=s==='open'?'menunggu ditangani':
+      s==='handling'?'sedang ditangani':'selesai ✅';
+    box.textContent='Keluhan #'+cid+' ('+d.urgency+'): '+label;
+    if(s==='resolved')clearInterval(complaintTimer)},5000)}
 document.getElementById('msg').addEventListener('keydown',
   e=>{if(e.key==='Enter')send()});
 </script></body></html>"""
@@ -101,6 +146,13 @@ STAFF_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 <body><h1>🧑‍🍳 Dashboard Staf</h1><p class="muted">Antrean order masuk.
 ACC pesanan tamu, lalu kirim tiket ke dapur. Memperbarui otomatis.</p>
 <div id="list"></div>
+<h2>📣 Keluhan tamu</h2>
+<div id="complaints"></div>
+<h2>🗂️ Kelola menu</h2>
+<p class="muted">Tandai habis, restock, atau ubah harga. Agen langsung
+memakai data ini — item yang ditandai habis akan ditolak saat dipesan.</p>
+<button onclick="refreshMenu()">Muat ulang menu</button>
+<div id="menuAdmin"></div>
 <script>
 function esc(s){return String(s).replace(/[&<>"']/g,
   c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -124,7 +176,45 @@ async function refresh(){let d=await fetch('/api/orders').then(r=>r.json());
   document.getElementById('list').innerHTML=html||'<p class="muted">Belum ada order.</p>'}
 async function acc(id,ok){await api('/api/orders/'+id+'/acc',{accepted:ok});refresh()}
 async function ticket(id){await api('/api/orders/'+id+'/ticket');refresh()}
-refresh();setInterval(refresh,3000);
+const URG_LABEL={tinggi:'🔴 tinggi',sedang:'🟡 sedang',rendah:'🟢 rendah'};
+async function refreshComplaints(){let d=await fetch('/api/complaints').then(r=>r.json());
+  let html='';
+  for(let c of d.complaints){html+='<div class="card"><b>Keluhan #'+c.id+
+    ' — Meja '+esc(c.table_no)+'</b> <span class="muted">'+URG_LABEL[c.urgency]+
+    ' • '+esc(c.status)+'</span><div>'+esc(c.message)+'</div>';
+    if(c.order_id)html+='<div class="muted">Order #'+c.order_id+'</div>';
+    if(c.status==='open'){html+='<button class="primary" onclick="complaintStatus('+
+      c.id+",'handling')\">Tangani</button>"}
+    if(c.status==='handling'){html+='<button class="primary" onclick="complaintStatus('+
+      c.id+",'resolved')\">Tandai selesai</button>"}
+    if(c.status==='resolved')html+='<span class="muted">Selesai ✅</span>';
+    html+='</div>'}
+  document.getElementById('complaints').innerHTML=html||
+    '<p class="muted">Belum ada keluhan.</p>'}
+async function complaintStatus(id,st){await api('/api/complaints/'+id+'/status',
+  {status:st});refreshComplaints()}
+async function refreshMenu(){let d=await fetch('/api/menu').then(r=>r.json());
+  let html='';
+  for(let it of d.items){html+='<div class="card"><b>'+esc(it.name)+
+    '</b> <span class="muted">Rp'+it.price_idr.toLocaleString('id-ID')+
+    ' • stok '+it.stock+'</span><br>'+
+    '<button onclick="menuStock('+it.id+',0)">Tandai habis</button>'+
+    '<button onclick="menuStockDelta('+it.id+',10)">Stok +10</button> '+
+    '<input id="price-'+it.id+'" type="number" min="1" value="'+it.price_idr+
+    '" style="width:120px"> '+
+    '<button onclick="menuPrice('+it.id+')">Ubah harga</button></div>'}
+  document.getElementById('menuAdmin').innerHTML=html}
+async function menuStock(id,stock){await api('/api/menu/'+id+'/stock',
+  {stock:stock});refreshMenu()}
+async function menuStockDelta(id,delta){await api('/api/menu/'+id+'/stock',
+  {delta:delta});refreshMenu()}
+async function menuPrice(id){let v=parseInt(
+  document.getElementById('price-'+id).value,10);
+  await api('/api/menu/'+id+'/price',{price_idr:v});refreshMenu()}
+refresh();refreshComplaints();refreshMenu();
+// Menu TIDAK ikut interval 3 detik: input harga yang sedang diketik
+// staf akan terhapus kalau daftarnya di-render ulang terus.
+setInterval(()=>{refresh();refreshComplaints()},3000);
 </script></body></html>"""
 
 KITCHEN_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
@@ -193,6 +283,37 @@ def list_orders(db_path):
         conn.close()
 
 
+def get_order_detail(db_path, order_id):
+    """One order with its items, total, and kitchen ticket status (or None)."""
+    conn = _conn(db_path)
+    try:
+        o = conn.execute(
+            "SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if o is None:
+            return None
+        items = conn.execute(
+            "SELECT oi.qty, oi.custom_note, mi.name, mi.price_idr"
+            " FROM order_items oi JOIN menu_items mi"
+            " ON mi.id = oi.menu_item_id WHERE oi.order_id = ?",
+            (o["id"],)).fetchall()
+        ticket = conn.execute(
+            "SELECT status FROM kitchen_tickets WHERE order_id = ?",
+            (o["id"],)).fetchone()
+        return {
+            "id": o["id"], "table_no": o["table_no"],
+            "language": o["language"], "status": o["status"],
+            "allergy_notes": o["allergy_notes"],
+            "dietary_notes": o["dietary_notes"],
+            "ticket_status": ticket["status"] if ticket else None,
+            "total_idr": sum(i["qty"] * i["price_idr"] for i in items),
+            "items": [{"name": i["name"], "qty": i["qty"],
+                       "custom_note": i["custom_note"],
+                       "price_idr": i["price_idr"]} for i in items],
+        }
+    finally:
+        conn.close()
+
+
 def list_tickets(db_path):
     conn = _conn(db_path)
     try:
@@ -256,6 +377,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlsplit(self.path).path
+        parts = [p for p in path.split("/") if p]
         try:
             if path == "/":
                 self._send_html(200, GUEST_HTML)
@@ -268,8 +390,39 @@ class Handler(BaseHTTPRequestHandler):
                     db_path=self.db_path)})
             elif path == "/api/orders":
                 self._send_json(200, {"orders": list_orders(self.db_path)})
+            elif len(parts) == 3 and parts[0] == "api" \
+                    and parts[1] == "orders":
+                try:
+                    detail = get_order_detail(self.db_path, int(parts[2]))
+                except ValueError:
+                    self._send_json(400, {"ok": False,
+                                          "error": "id order harus angka"})
+                    return
+                if detail is None:
+                    self._send_json(404, {"ok": False,
+                                          "error": "order tidak ditemukan"})
+                else:
+                    self._send_json(200, {"ok": True, "order": detail})
             elif path == "/api/tickets":
                 self._send_json(200, {"tickets": list_tickets(self.db_path)})
+            elif path == "/api/complaints":
+                self._send_json(200, {"complaints":
+                                      complaints.list_complaints(
+                                          self.db_path)})
+            elif len(parts) == 3 and parts[0] == "api" \
+                    and parts[1] == "complaints":
+                try:
+                    c = complaints.get_complaint(int(parts[2]),
+                                                 self.db_path)
+                except ValueError:
+                    self._send_json(400, {"ok": False,
+                                          "error": "id keluhan harus angka"})
+                    return
+                if c is None:
+                    self._send_json(404, {"ok": False,
+                                          "error": "keluhan tidak ditemukan"})
+                else:
+                    self._send_json(200, {"ok": True, "complaint": c})
             elif path == "/api/report":
                 self._send_json(200, report.daily_report(self.db_path))
             else:
@@ -314,6 +467,35 @@ class Handler(BaseHTTPRequestHandler):
                 tid = int(parts[2])
                 r = tools.set_ticket_status(tid, body["status"],
                                             db_path=self.db_path)
+                self._send_json(200, {"ok": True, **r})
+            elif path == "/api/complaints":
+                r = complaints.create_complaint(
+                    body["table_no"], body["message"],
+                    order_id=body.get("order_id"), db_path=self.db_path)
+                self._send_json(200, {"ok": True, **r})
+            elif len(parts) == 4 and parts[0] == "api" \
+                    and parts[1] == "complaints" and parts[3] == "status":
+                r = complaints.set_complaint_status(
+                    int(parts[2]), body["status"], db_path=self.db_path)
+                self._send_json(200, {"ok": True, **r})
+            elif len(parts) == 4 and parts[0] == "api" \
+                    and parts[1] == "menu":
+                mid = int(parts[2])
+                action = parts[3]
+                if action == "stock":
+                    if "delta" in body:
+                        r = menu_admin.adjust_stock(
+                            mid, body["delta"], db_path=self.db_path)
+                    else:
+                        r = menu_admin.set_stock(
+                            mid, body["stock"], db_path=self.db_path)
+                elif action == "price":
+                    r = menu_admin.set_price(
+                        mid, body["price_idr"], db_path=self.db_path)
+                else:
+                    self._send_json(404, {"ok": False,
+                                          "error": "aksi tak dikenal"})
+                    return
                 self._send_json(200, {"ok": True, **r})
             else:
                 self._send_json(404, {"ok": False, "error": "rute tak dikenal"})

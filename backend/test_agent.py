@@ -2,8 +2,12 @@
 """Simulated agent tests against an isolated temp DB (never the real DB).
 
 Max 2 scenarios (time-boxed sprint):
-  (a) Japanese guest orders 2 items that ARE on the menu -> a draft order
-      is created and the agent replies in Japanese.
+  (a) Japanese guest orders 2 items that ARE on the menu -> the agent
+      MUST ask about allergies first (rule 7: no create_order before the
+      guest answers allergies + dietary restrictions), then, after the
+      guest answers "none", a draft order is created and the agent
+      replies in Japanese. (Single-turn creation without an allergy
+      answer would violate rule 7, so this scenario is two turns.)
   (b) Guest orders an item NOT on the menu -> the agent asks a
       clarifying question and NO order is created.
 
@@ -45,6 +49,8 @@ def main():
     passed = []
 
     # --- (a) Japanese guest orders 2 real items -------------------------
+    # Turn 1: no allergy info -> rule 7 REQUIRES the agent to ask first
+    # and NOT create yet. Turn 2: guest answers "none" -> draft created.
     print("=== (a) tamu Jepang pesan 2 item yang ADA di menu ===")
     msg_a = "ナシゴレン・スペシャルを2つとエス・テ・マニスを1つください"
     print(f"guest: {msg_a}")
@@ -54,16 +60,43 @@ def main():
         print(f"  tool {call['tool']} args={call['args']} -> {call['result']}")
     print(f"agent: {res_a['reply']}")
     orders, items = _db_state(db_path)
-    print(f"DB: {len(orders)} order(s), {len(items)} order item(s): {orders} {items}")
-    ok_a = (
-        len(orders) == 1
-        and orders[0]["status"] == "draft"
-        and len(items) == 2
+    print(f"DB turn 1: {len(orders)} order(s) (harus 0 — alergi belum dijawab)")
+    ok_a_t1 = (
+        len(orders) == 0
+        and not any(c["tool"] == "create_order" for c in res_a["tool_calls"])
         and bool(JAPANESE.search(res_a["reply"]))
-        and any(c["tool"] == "create_order" for c in res_a["tool_calls"])
+        and "アレルギー" in res_a["reply"]
     )
-    print(f"CHECK (a): {'PASS' if ok_a else 'FAIL'}\n")
-    passed.append(ok_a)
+    print(f"CHECK (a) turn 1 (tanya alergi, belum buat): "
+          f"{'PASS' if ok_a_t1 else 'FAIL'}\n")
+    if not ok_a_t1:
+        passed.append(False)
+    else:
+        msg_a2 = "アレルギーはありません。食事制限もありません。"
+        print(f"guest: {msg_a2}")
+        history_a = [
+            {"role": "user", "content": msg_a},
+            {"role": "assistant", "content": res_a["reply"]},
+        ]
+        res_a2 = agent.run_turn(msg_a2, table_no="A12", history=history_a,
+                                db_path=db_path)
+        print(f"path: {res_a2['path']}")
+        for call in res_a2["tool_calls"]:
+            print(f"  tool {call['tool']} args={call['args']} -> {call['result']}")
+        print(f"agent: {res_a2['reply']}")
+        orders, items = _db_state(db_path)
+        print(f"DB: {len(orders)} order(s), {len(items)} order item(s): "
+              f"{orders} {items}")
+        got = {(it["menu_item_id"], it["qty"]) for it in items}
+        ok_a = (
+            len(orders) == 1
+            and orders[0]["status"] == "draft"
+            and got == {(1, 2), (9, 1)}
+            and bool(JAPANESE.search(res_a2["reply"]))
+            and any(c["tool"] == "create_order" for c in res_a2["tool_calls"])
+        )
+        print(f"CHECK (a) turn 2 (draft dibuat): {'PASS' if ok_a else 'FAIL'}\n")
+        passed.append(ok_a)
 
     # --- (b) guest orders an item NOT on the menu -----------------------
     print("=== (b) tamu pesan item yang TIDAK ADA di menu ===")

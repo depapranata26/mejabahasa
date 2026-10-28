@@ -542,7 +542,13 @@ def make_server(port, db_path):
 
 
 def main(argv):
-    port = int(argv[1]) if len(argv) > 1 else 8000
+    # Port dari argumen CLI, atau env PORT (Replit/Koyeb/HF menyetelnya),
+    # atau 8000 kalau tidak ada keduanya.
+    if len(argv) > 1:
+        port = int(argv[1])
+    else:
+        import os
+        port = int(os.environ.get("PORT", "8000"))
     db_path = argv[2] if len(argv) > 2 else DATABASE_PATH
     count = seed.ensure_db(db_path)
     print(f"MejaBahasa server: http://127.0.0.1:{port}/ "

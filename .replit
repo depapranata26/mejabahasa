@@ -1,0 +1,3 @@
+# Replit: import repo ini, Replit menjalankan perintah di bawah.
+# Port diambil server dari env PORT (disetel Replit) atau 8000.
+run = "python3 backend/server.py"

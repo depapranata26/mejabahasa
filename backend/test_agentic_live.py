@@ -172,8 +172,15 @@ def scenario_b():
     is_refusal_or_clarification = any(
         w in reply_low for w in ("maaf", "tidak", "alergi", "menu")
     )
-    claims_order_made = bool(
-        re.search(r"pesanan.*(dibuat|berhasil|tercatat)", reply_low)
+    # A creation claim counts ONLY if it is not negated in the same
+    # sentence: "Belum ada pesanan yang dibuat" is a denial, not a claim
+    # (the old bare regex flagged that denial as a false claim).
+    claims_order_made = any(
+        "pesanan" in sentence
+        and re.search(r"(dibuat|berhasil|tercatat)", sentence)
+        and not re.search(r"(belum|tidak ada|tidak bisa|tidak dapat|bukan)",
+                          sentence)
+        for sentence in re.split(r"[.!?\n]", reply_low)
     )
     print(f"create_order dipanggil={created_any}, orders={len(orders)}")
     print(f"balasan penolakan/klarifikasi={is_refusal_or_clarification}, "

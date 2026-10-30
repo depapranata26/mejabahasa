@@ -6,6 +6,7 @@ Serves the three faces of the same SQLite database:
   GET  /staff     staff dashboard (order queue, ACC, send ticket)
   GET  /kitchen   kitchen display (ticket lifecycle)
   GET  /koordinator  floor coordinator plan (who cooks/makes/delivers what)
+  GET  /owner     owner dashboard (operational summary, no login — demo)
   GET  /api/menu, /api/orders, /api/tickets, /api/plan
   POST /api/chat, /api/orders,
        /api/orders/<id>/confirm | request_acc | acc | ticket,
@@ -47,18 +48,24 @@ input,textarea{width:100%;padding:8px;margin:6px 0;box-sizing:border-box}
 GUEST_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MejaBahasa — Pesan dari Meja</title><style>""" + CSS + """</style></head>
-<body><h1>🍽️ MejaBahasa</h1><p class="muted">Scan QR meja, lalu pesan
+<body><h1>🍽️ MejaBahasa</h1>
+<div><button id="langId" class="primary" onclick="setLang('id')">ID</button><button id="langEn" onclick="setLang('en')">EN</button>
+<button id="menuBtn" onclick="toggleMenu()">📖 Lihat menu</button></div>
+<p class="muted" data-i18n="subtitle">Scan QR meja, lalu pesan
 dengan bahasa kamu sendiri. AI mendeteksi bahasanya
 otomatis.</p>
-<label>Nomor meja <input id="table" value="A12"></label>
+<div id="menuList"></div>
+<label><span data-i18n="tableLabel">Nomor meja</span> <input id="table" value="A12"></label>
 <div id="log"></div>
 <div id="actions"></div>
 <div id="statusBox"></div>
-<input id="msg" placeholder="Tulis pesananmu di sini…">
-<button id="sendBtn" class="primary" onclick="send()">Kirim</button>
+<input id="msg" data-i18n-ph="msgPh" placeholder="Tulis pesananmu di sini…">
+<button id="sendBtn" class="primary" onclick="send()" data-i18n="send">Kirim</button>
+<button id="voiceBtn" onclick="startVoice()" style="display:none" title="Input suara">🎤</button>
+<button id="speakBtn" onclick="toggleSpeak()" style="display:none" title="Bacakan balasan">🔊</button>
 <div style="margin-top:16px">
-<input id="complaintMsg" placeholder="Ada keluhan? Tulis di sini…">
-<button onclick="sendComplaint()">Laporkan keluhan</button>
+<input id="complaintMsg" data-i18n-ph="complaintPh" placeholder="Ada keluhan? Tulis di sini…">
+<button onclick="sendComplaint()" data-i18n="complaintBtn">Laporkan keluhan</button>
 <div id="complaintStatus" class="muted"></div></div>
 <script>
 let history=[];let lastOrder=null;let statusTimer=null;let complaintTimer=null;
@@ -78,13 +85,14 @@ async function send(){let inp=document.getElementById('msg');
   btn.disabled=true;inp.disabled=true;
   let log=document.getElementById('log');
   let typing=document.createElement('div');typing.className='msg muted';
-  typing.textContent='MejaBahasa sedang mengetik…';log.appendChild(typing);
+  typing.textContent=I18N[uiLang].typing;log.appendChild(typing);
   try{inp.value='';
     show('Kamu',text);history.push({role:'user',content:text});
     let data=await api('/api/chat',{table_no:document.getElementById('table').value,
       message:text,history:history.slice(0,-1),last_order_id:lastOrder});
     if(!data.ok){show('Sistem','Maaf, terjadi kesalahan: '+esc(data.error));return}
     show('MejaBahasa',data.reply);history.push({role:'assistant',content:data.reply});
+    speak(data.reply);
     if(data.last_order_id){lastOrder=data.last_order_id;
       document.getElementById('actions').innerHTML='<p class="muted">Pesanan draft #'+
       lastOrder+' dibuat. Tekan Konfirmasi kalau sudah benar.</p>'+
@@ -143,6 +151,55 @@ async function sendComplaint(){let inp=document.getElementById('complaintMsg');
     if(s==='resolved')clearInterval(complaintTimer)},5000)}
 document.getElementById('msg').addEventListener('keydown',
   e=>{if(e.key==='Enter')send()});
+// --- Chrome bilingual (ID/EN): hanya label & tombol, bukan isi menu ---
+const I18N={
+ id:{subtitle:'Scan QR meja, lalu pesan dengan bahasa kamu sendiri. AI mendeteksi bahasanya otomatis.',
+  tableLabel:'Nomor meja',msgPh:'Tulis pesananmu di sini…',send:'Kirim',
+  complaintPh:'Ada keluhan? Tulis di sini…',complaintBtn:'Laporkan keluhan',
+  menuBtn:'📖 Lihat menu',typing:'MejaBahasa sedang mengetik…',close:'Tutup'},
+ en:{subtitle:'Scan the table QR, then order in your own language. The AI detects it automatically.',
+  tableLabel:'Table number',msgPh:'Type your order here…',send:'Send',
+  complaintPh:'Any complaint? Write it here…',complaintBtn:'Report complaint',
+  menuBtn:'📖 Browse menu',typing:'MejaBahasa is typing…',close:'Close'}};
+let uiLang='id',menuOpen=false,menuItems=null;
+function updateMenuBtn(){document.getElementById('menuBtn').textContent=
+  menuOpen?I18N[uiLang].close+' ✕':I18N[uiLang].menuBtn}
+function setLang(l){uiLang=l;let t=I18N[l];
+ document.querySelectorAll('[data-i18n]').forEach(el=>{let k=el.getAttribute('data-i18n');
+   if(t[k])el.textContent=t[k]});
+ document.querySelectorAll('[data-i18n-ph]').forEach(el=>{let k=el.getAttribute('data-i18n-ph');
+   if(t[k])el.placeholder=t[k]});
+ document.getElementById('langId').className=l==='id'?'primary':'';
+ document.getElementById('langEn').className=l==='en'?'primary':'';
+ updateMenuBtn()}
+// --- Input suara (Web Speech API), disembunyikan kalau tak didukung ---
+let speakReply=false;
+(function(){let SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(SR)document.getElementById('voiceBtn').style.display='';
+ if('speechSynthesis' in window)document.getElementById('speakBtn').style.display='';})();
+function startVoice(){let SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!SR)return;let r=new SR();r.lang=uiLang==='id'?'id-ID':'en-US';
+ let btn=document.getElementById('voiceBtn');btn.disabled=true;btn.textContent='🎙️…';
+ r.onresult=e=>{document.getElementById('msg').value=e.results[0][0].transcript;send()};
+ r.onend=()=>{btn.disabled=false;btn.textContent='🎤'};
+ r.onerror=()=>{btn.disabled=false;btn.textContent='🎤'};
+ try{r.start()}catch(err){btn.disabled=false;btn.textContent='🎤'}}
+function toggleSpeak(){speakReply=!speakReply;
+ document.getElementById('speakBtn').className=speakReply?'primary':''}
+function speak(text){if(!speakReply||!('speechSynthesis' in window))return;
+ try{let u=new SpeechSynthesisUtterance(text);u.lang=uiLang==='id'?'id-ID':'en-US';
+  window.speechSynthesis.cancel();window.speechSynthesis.speak(u)}catch(err){}}
+// --- Browse menu tanpa chat ---
+async function toggleMenu(){menuOpen=!menuOpen;updateMenuBtn();
+ let box=document.getElementById('menuList');
+ if(!menuOpen){box.innerHTML='';return}
+ if(!menuItems){let d=await fetch('/api/menu').then(r=>r.json());menuItems=d.items}
+ let html='';
+ for(let it of menuItems){html+='<div class="card"><b>'+esc(it.name)+
+   '</b> <span class="muted">Rp'+it.price_idr.toLocaleString('id-ID');
+  if(it.stock<=0)html+=' • <b>HABIS</b>';else html+=' • stok '+it.stock;
+  html+='</span></div>'}
+ box.innerHTML=html||'<p class="muted">Menu kosong.</p>'}
 </script></body></html>"""
 
 STAFF_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
@@ -150,7 +207,7 @@ STAFF_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 <title>MejaBahasa — Dashboard Staf</title><style>""" + CSS + """</style></head>
 <body><h1>🧑‍🍳 Dashboard Staf</h1><p class="muted">Antrean order masuk.
 ACC pesanan tamu, lalu kirim tiket ke dapur. Memperbarui otomatis.</p>
-<p><a href="/koordinator">📋 Koordinator lapangan</a> · <a href="/kitchen">Dapur</a></p>
+<p><a href="/koordinator">📋 Koordinator lapangan</a> · <a href="/kitchen">Dapur</a> · <a href="/owner">👑 Owner</a></p>
 <div id="list"></div>
 <h2>📣 Keluhan tamu</h2>
 <div id="complaints"></div>
@@ -253,6 +310,50 @@ async function refresh(){let d=await fetch('/api/tickets').then(r=>r.json());
   document.getElementById('list').innerHTML=html||'<p class="muted">Belum ada tiket.</p>'}
 async function setStatus(id,st){await api('/api/tickets/'+id+'/status',{status:st});refresh()}
 refresh();setInterval(refresh,3000);
+</script></body></html>"""
+
+OWNER_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MejaBahasa — Dashboard Owner</title><style>""" + CSS + """</style></head>
+<body><h1>👑 Dashboard Owner</h1><p class="muted">Ringkasan operasional dari
+data live. Memperbarui otomatis tiap 10 detik.</p>
+<p class="warn">🔓 Demo tanpa login — halaman ini terbuka untuk siapa saja
+di jaringan ini, bukan halaman terkunci.</p>
+<p><a href="/">Tamu</a> · <a href="/staff">Staf</a> ·
+<a href="/kitchen">Dapur</a> · <a href="/koordinator">Koordinator</a></p>
+<div id="report"><p class="muted">Memuat…</p></div>
+<script>
+function esc(s){return String(s).replace(/[&<>"']/g,
+  c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function rp(n){return 'Rp'+Number(n||0).toLocaleString('id-ID')}
+async function refresh(){let r=await fetch('/api/report').then(x=>x.json());
+ let c={complaints:[]};
+ try{c=await fetch('/api/complaints').then(x=>x.json())}catch(err){}
+ let html='<div class="card"><b>💰 Omzet</b><div style="font-size:28px">'+
+   rp(r.revenue_idr)+'</div><div class="muted">dari order berstatus '+
+   'sent_to_kitchen / done</div></div>';
+ let ob=Object.entries(r.orders_by_status||{}).map(([k,v])=>esc(k)+': '+v)
+   .join(' • ');
+ html+='<div class="card"><b>🧾 Order: '+r.total_orders+'</b><div>'+
+   (ob||'<span class="muted">Belum ada.</span>')+'</div></div>';
+ html+='<div class="card"><b>🏆 5 item terlaris</b><div>'+
+   ((r.top_items||[]).map(t=>esc(t.name)+' ×'+t.sold).join('<br>')||
+    '<span class="muted">Belum ada.</span>')+'</div></div>';
+ let tb=Object.entries(r.tickets_by_status||{}).map(([k,v])=>esc(k)+': '+v)
+   .join(' • ');
+ html+='<div class="card"><b>🔥 Tiket dapur</b><div>'+
+   (tb||'<span class="muted">Belum ada.</span>')+'</div></div>';
+ html+='<div class="card"><b>⚠️ Stok menipis (≤10)</b><div>'+
+   ((r.low_stock||[]).map(s=>esc(s.name)+' ('+s.stock+')').join('<br>')||
+    '<span class="muted">Aman.</span>')+'</div></div>';
+ let urg={tinggi:0,sedang:0,rendah:0},open=0;
+ for(let x of c.complaints){if(urg[x.urgency]!==undefined)urg[x.urgency]++;
+   if(x.status==='open')open++}
+ html+='<div class="card"><b>📣 Keluhan: '+c.complaints.length+
+   '</b> (open: '+open+')<div>🔴 tinggi: '+urg.tinggi+' • 🟡 sedang: '+
+   urg.sedang+' • 🟢 rendah: '+urg.rendah+'</div></div>';
+ document.getElementById('report').innerHTML=html}
+refresh();setInterval(refresh,10000);
 </script></body></html>"""
 
 KOORDINATOR_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
@@ -428,6 +529,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(200, KITCHEN_HTML)
             elif path == "/koordinator":
                 self._send_html(200, KOORDINATOR_HTML)
+            elif path == "/owner":
+                self._send_html(200, OWNER_HTML)
             elif path == "/api/plan":
                 table = parse_qs(
                     urlsplit(self.path).query).get("table", [None])[0]
@@ -605,6 +708,7 @@ def main(argv):
     print(f"  staf:    http://127.0.0.1:{port}/staff")
     print(f"  dapur:   http://127.0.0.1:{port}/kitchen")
     print(f"  koordinator: http://127.0.0.1:{port}/koordinator")
+    print(f"  owner:   http://127.0.0.1:{port}/owner (demo, tanpa login)")
     make_server(port, db_path).serve_forever()
     return 0
 

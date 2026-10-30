@@ -246,10 +246,8 @@ async function refreshComplaints(){let d=await fetch('/api/complaints').then(r=>
     ' — Meja '+esc(c.table_no)+'</b> <span class="muted">'+URG_LABEL[c.urgency]+
     ' • '+esc(c.status)+'</span><div>'+esc(c.message)+'</div>';
     if(c.order_id)html+='<div class="muted">Order #'+c.order_id+'</div>';
-    if(c.status==='open'){html+='<button class="primary" onclick="complaintStatus('+
-      c.id+",'handling')\">Tangani</button>"}
-    if(c.status==='handling'){html+='<button class="primary" onclick="complaintStatus('+
-      c.id+",'resolved')\">Tandai selesai</button>"}
+    if(c.status==='open'){html+='<button class=\"primary\" data-id="'+c.id+'" data-st="handling" onclick="complaintStatus(this.dataset.id,this.dataset.st)">Tangani</button>'}
+    if(c.status==='handling'){html+='<button class=\"primary\" data-id="'+c.id+'" data-st="resolved" onclick="complaintStatus(this.dataset.id,this.dataset.st)">Tandai selesai</button>'}
     if(c.status==='resolved')html+='<span class="muted">Selesai ✅</span>';
     html+='</div>'}
   document.getElementById('complaints').innerHTML=html||
@@ -304,7 +302,7 @@ async function refresh(){let d=await fetch('/api/tickets').then(r=>r.json());
     html+='<div>'+t.items.map(i=>esc(i.qty)+'x '+esc(i.name)+
       (i.custom_note?' ['+esc(i.custom_note)+']':'')).join('<br>')+'</div>';
     if(NEXT[t.status]){let [st,label]=NEXT[t.status];
-      html+='<button class="primary" onclick="setStatus('+t.ticket_id+",'"+st+"')\">"+label+'</button>'}
+      html+='<button class="primary" data-id="'+t.ticket_id+'" data-st="'+st+'" onclick="setStatus(this.dataset.id,this.dataset.st)">'+label+'</button>'}
     else{html+='<span class="muted">Selesai ✅</span>'}
     html+='</div>'}
   document.getElementById('list').innerHTML=html||'<p class="muted">Belum ada tiket.</p>'}

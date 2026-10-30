@@ -60,9 +60,11 @@ def main():
     th = threading.Thread(target=httpd.serve_forever, daemon=True)
     th.start()
     try:
-        print("[1] tiga halaman merespons 200")
+        print("[1] halaman-halaman merespons 200")
         for path, needle in [("/", "MejaBahasa"), ("/staff", "Dashboard"),
-                             ("/kitchen", "Dapur")]:
+                             ("/kitchen", "Dapur"),
+                             ("/koordinator", "Koordinator"),
+                             ("/owner", "Omzet")]:
             status, body = req("GET", base, path)
             check(f"GET {path} 200 + memuat '{needle}'",
                   status == 200 and needle in body, f"status={status}")
@@ -103,6 +105,18 @@ def main():
         mine = [x for x in orders["orders"] if x["id"] == oid][0]
         check("order selesai (done) setelah tiket disajikan",
               mine["status"] == "done", mine["status"])
+
+        print("[4] dashboard owner + angka report")
+        status, page = req("GET", base, "/owner")
+        check("GET /owner 200 + memuat angka omzet",
+              status == 200 and "Omzet" in page and "Rp" in page,
+              f"status={status}")
+        status, rep = req("GET", base, "/api/report")
+        check("GET /api/report total_orders>=1, revenue>0",
+              status == 200 and rep["total_orders"] >= 1
+              and rep["revenue_idr"] > 0,
+              f"total={rep.get('total_orders')} "
+              f"revenue={rep.get('revenue_idr')}")
     finally:
         httpd.shutdown()
         httpd.server_close()

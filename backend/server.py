@@ -29,51 +29,67 @@ from urllib.parse import parse_qs, urlsplit
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+STATIC_DIR = REPO_ROOT / "static"
+
 from backend import complaints, coordinator, menu_admin, queue_estimate, report, seed, tools  # noqa: E402
 from backend.config import DATABASE_PATH  # noqa: E402
 
 CSS = """
-body{font-family:system-ui,sans-serif;max-width:680px;margin:0 auto;
-padding:16px;color:#222}h1{font-size:22px}.card{border:1px solid #ccc;
-border-radius:8px;padding:12px;margin:10px 0}.warn{background:#fff3cd;
-border:1px solid #e6c200;border-radius:6px;padding:8px;margin:8px 0}
-button{padding:8px 14px;margin:4px 4px 4px 0;border-radius:6px;
-border:1px solid #888;background:#f0f0f0;cursor:pointer}
-button.primary{background:#222;color:#fff}
-input,textarea{width:100%;padding:8px;margin:6px 0;box-sizing:border-box}
-#log{border:1px solid #ccc;border-radius:8px;padding:10px;min-height:200px}
-.msg{margin:8px 0}.msg b{display:block}.muted{color:#666;font-size:13px}
+/* Custom di atas W3.CSS: kartu, bubble chat, dan panel peringatan. */
+body{background:#f1f1f1}
+.card{background:#fff;border-radius:8px;box-shadow:0 2px 5px rgba(0,0,0,.16);
+padding:12px 16px;margin:12px 0}
+.warn{background:#fff3cd;border-left:4px solid #e6c200;padding:8px 12px;
+margin:8px 0;border-radius:4px}
+.muted{color:#666;font-size:13px}
+#log{overflow:hidden;padding-bottom:8px}
+.msg{max-width:85%;margin:8px 0;padding:10px 14px;border-radius:16px;clear:both}
+.msg b{display:block;font-size:12px;margin-bottom:2px;opacity:.75}
+.msg-user{background:#0d47a1;color:#fff;margin-left:auto;
+border-bottom-right-radius:4px}
+.msg-bot{background:#fff;margin-right:auto;
+border-bottom-left-radius:4px;box-shadow:0 2px 4px rgba(0,0,0,.15)}
+.msg-sys{background:#fff3cd;border:1px solid #e6c200;border-radius:8px;
+font-size:13px;max-width:100%}
+.msg-sys b{display:none}
+input.w3-input,textarea.w3-input{border-radius:6px!important}
+header h1{margin:0}
 """
 
 GUEST_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MejaBahasa — Pesan dari Meja</title><style>""" + CSS + """</style></head>
-<body><h1>🍽️ MejaBahasa</h1>
-<div><button id="langId" class="primary" onclick="setLang('id')">ID</button><button id="langEn" onclick="setLang('en')">EN</button>
-<button id="menuBtn" onclick="toggleMenu()">📖 Lihat menu</button></div>
+<title>MejaBahasa — Pesan dari Meja</title><link rel="stylesheet" href="/static/w3.css"><style>""" + CSS + """</style></head>
+<body>
+<header class="w3-container w3-dark-grey w3-padding"><h1>🍽️ MejaBahasa</h1></header>
+<div class="w3-content w3-padding" style="max-width:680px">
+<div class="w3-bar w3-margin-top"><button id="langId" class="w3-button w3-black w3-round w3-small" onclick="setLang('id')">ID</button><button id="langEn" class="w3-button w3-white w3-border w3-round w3-small" onclick="setLang('en')">EN</button>
+<button id="menuBtn" class="w3-button w3-white w3-border w3-round w3-small" onclick="toggleMenu()">📖 Lihat menu</button></div>
 <p class="muted" data-i18n="subtitle">Scan QR meja, lalu pesan
 dengan bahasa kamu sendiri. AI mendeteksi bahasanya
 otomatis.</p>
 <div id="menuList"></div>
-<label><span data-i18n="tableLabel">Nomor meja</span> <input id="table" value="A12"></label>
-<div id="log"></div>
+<label class="w3-margin-top w3-block"><span data-i18n="tableLabel">Nomor meja</span> <input id="table" class="w3-input w3-border" value="A12"></label>
+<div id="log" class="w3-margin-top"></div>
 <div id="actions"></div>
 <div id="statusBox"></div>
-<input id="msg" data-i18n-ph="msgPh" placeholder="Tulis pesananmu di sini…">
-<button id="sendBtn" class="primary" onclick="send()" data-i18n="send">Kirim</button>
-<button id="voiceBtn" onclick="startVoice()" style="display:none" title="Input suara">🎤</button>
-<button id="speakBtn" onclick="toggleSpeak()" style="display:none" title="Bacakan balasan">🔊</button>
-<div style="margin-top:16px">
-<input id="complaintMsg" data-i18n-ph="complaintPh" placeholder="Ada keluhan? Tulis di sini…">
-<button onclick="sendComplaint()" data-i18n="complaintBtn">Laporkan keluhan</button>
+<input id="msg" class="w3-input w3-border" data-i18n-ph="msgPh" placeholder="Tulis pesananmu di sini…">
+<button id="sendBtn" class="w3-button w3-black w3-round w3-margin-top" onclick="send()" data-i18n="send">Kirim</button>
+<button id="voiceBtn" class="w3-button w3-white w3-border w3-round w3-margin-top" onclick="startVoice()" style="display:none" title="Input suara">🎤</button>
+<button id="speakBtn" class="w3-button w3-white w3-border w3-round w3-margin-top" onclick="toggleSpeak()" style="display:none" title="Bacakan balasan">🔊</button>
+<div class="w3-margin-top">
+<input id="complaintMsg" class="w3-input w3-border" data-i18n-ph="complaintPh" placeholder="Ada keluhan? Tulis di sini…">
+<button class="w3-button w3-white w3-border w3-round w3-margin-top" onclick="sendComplaint()" data-i18n="complaintBtn">Laporkan keluhan</button>
 <div id="complaintStatus" class="muted"></div></div>
+</div>
 <script>
 let history=[];let lastOrder=null;let statusTimer=null;let complaintTimer=null;
 let qrTable=new URLSearchParams(location.search).get('table');
 if(qrTable)document.getElementById('table').value=qrTable;
 function esc(s){return String(s).replace(/[&<>"']/g,
   c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function show(role,text){let d=document.createElement('div');d.className='msg';
+function show(role,text){let d=document.createElement('div');
+  let cls=role==='Kamu'?'msg-user':(role==='Sistem'?'msg-sys':'msg-bot');
+  d.className='msg '+cls;
   d.innerHTML='<b>'+esc(role)+'</b>'+esc(text);document.getElementById('log').appendChild(d)}
 async function api(path,body){let r=await fetch(path,{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
@@ -96,7 +112,7 @@ async function send(){let inp=document.getElementById('msg');
     if(data.last_order_id){lastOrder=data.last_order_id;
       document.getElementById('actions').innerHTML='<p class="muted">Pesanan draft #'+
       lastOrder+' dibuat. Tekan Konfirmasi kalau sudah benar.</p>'+
-      '<button class="primary" onclick="confirmOrder()">Konfirmasi pesanan</button>'}}
+      '<button class="w3-button w3-black w3-round" onclick="confirmOrder()">Konfirmasi pesanan</button>'}}
   finally{typing.remove();btn.disabled=false;inp.disabled=false;inp.focus()}}
 async function confirmOrder(){let d=await api('/api/orders/'+lastOrder+'/confirm');
   if(!d.ok){show('Sistem','Gagal konfirmasi: '+esc(d.error));return}
@@ -169,8 +185,8 @@ function setLang(l){uiLang=l;let t=I18N[l];
    if(t[k])el.textContent=t[k]});
  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{let k=el.getAttribute('data-i18n-ph');
    if(t[k])el.placeholder=t[k]});
- document.getElementById('langId').className=l==='id'?'primary':'';
- document.getElementById('langEn').className=l==='en'?'primary':'';
+ document.getElementById('langId').className='w3-button w3-round w3-small '+(l==='id'?'w3-black':'w3-white w3-border');
+ document.getElementById('langEn').className='w3-button w3-round w3-small '+(l==='en'?'w3-black':'w3-white w3-border');
  updateMenuBtn()}
 // --- Input suara (Web Speech API), disembunyikan kalau tak didukung ---
 let speakReply=false;
@@ -185,7 +201,7 @@ function startVoice(){let SR=window.SpeechRecognition||window.webkitSpeechRecogn
  r.onerror=()=>{btn.disabled=false;btn.textContent='🎤'};
  try{r.start()}catch(err){btn.disabled=false;btn.textContent='🎤'}}
 function toggleSpeak(){speakReply=!speakReply;
- document.getElementById('speakBtn').className=speakReply?'primary':''}
+ document.getElementById('speakBtn').className='w3-button w3-round w3-margin-top w3-small '+(speakReply?'w3-black':'w3-white w3-border')}
 function speak(text){if(!speakReply||!('speechSynthesis' in window))return;
  try{let u=new SpeechSynthesisUtterance(text);u.lang=uiLang==='id'?'id-ID':'en-US';
   window.speechSynthesis.cancel();window.speechSynthesis.speak(u)}catch(err){}}
@@ -204,18 +220,22 @@ async function toggleMenu(){menuOpen=!menuOpen;updateMenuBtn();
 
 STAFF_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MejaBahasa — Dashboard Staf</title><style>""" + CSS + """</style></head>
-<body><h1>🧑‍🍳 Dashboard Staf</h1><p class="muted">Antrean order masuk.
+<title>MejaBahasa — Dashboard Staf</title><link rel="stylesheet" href="/static/w3.css"><style>""" + CSS + """</style></head>
+<body>
+<header class="w3-container w3-indigo w3-padding"><h1>🧑‍🍳 Dashboard Staf</h1></header>
+<div class="w3-content w3-padding" style="max-width:760px">
+<p class="muted">Antrean order masuk.
 ACC pesanan tamu, lalu kirim tiket ke dapur. Memperbarui otomatis.</p>
-<p><a href="/koordinator">📋 Koordinator lapangan</a> · <a href="/kitchen">Dapur</a> · <a href="/owner">👑 Owner</a></p>
+<p><a class="w3-button w3-white w3-border w3-round w3-small" href="/koordinator">📋 Koordinator lapangan</a> <a class="w3-button w3-white w3-border w3-round w3-small" href="/kitchen">🔥 Dapur</a> <a class="w3-button w3-white w3-border w3-round w3-small" href="/owner">👑 Owner</a></p>
 <div id="list"></div>
 <h2>📣 Keluhan tamu</h2>
 <div id="complaints"></div>
 <h2>🗂️ Kelola menu</h2>
 <p class="muted">Tandai habis, restock, atau ubah harga. Agen langsung
 memakai data ini — item yang ditandai habis akan ditolak saat dipesan.</p>
-<button onclick="refreshMenu()">Muat ulang menu</button>
+<button class="w3-button w3-white w3-border w3-round w3-small" onclick="refreshMenu()">Muat ulang menu</button>
 <div id="menuAdmin"></div>
+</div>
 <script>
 function esc(s){return String(s).replace(/[&<>"']/g,
   c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -232,9 +252,9 @@ async function refresh(){let d=await fetch('/api/orders').then(r=>r.json());
     html+='<div>'+o.items.map(i=>esc(i.qty)+'x '+esc(i.name)+
       (i.custom_note?' ['+esc(i.custom_note)+']':'')).join('<br>')+
       '</div><div class="muted">Total Rp'+o.total_idr.toLocaleString('id-ID')+'</div>';
-    if(o.status==='acc_pending'){html+='<button class="primary" onclick="acc('+o.id+',true)">✅ Terima (ACC)</button>'+
-      '<button onclick="acc('+o.id+',false)">❌ Tolak</button>'}
-    if(o.status==='acc_accepted'){html+='<button class="primary" onclick="ticket('+o.id+')">📨 Kirim tiket dapur</button>'}
+    if(o.status==='acc_pending'){html+='<button class="w3-button w3-black w3-round w3-small" onclick="acc('+o.id+',true)">✅ Terima (ACC)</button>'+
+      '<button class="w3-button w3-white w3-border w3-round w3-small" onclick="acc('+o.id+',false)">❌ Tolak</button>'}
+    if(o.status==='acc_accepted'){html+='<button class="w3-button w3-black w3-round w3-small" onclick="ticket('+o.id+')">📨 Kirim tiket dapur</button>'}
     html+='</div>'}
   document.getElementById('list').innerHTML=html||'<p class="muted">Belum ada order.</p>'}
 async function acc(id,ok){await api('/api/orders/'+id+'/acc',{accepted:ok});refresh()}
@@ -246,8 +266,8 @@ async function refreshComplaints(){let d=await fetch('/api/complaints').then(r=>
     ' — Meja '+esc(c.table_no)+'</b> <span class="muted">'+URG_LABEL[c.urgency]+
     ' • '+esc(c.status)+'</span><div>'+esc(c.message)+'</div>';
     if(c.order_id)html+='<div class="muted">Order #'+c.order_id+'</div>';
-    if(c.status==='open'){html+='<button class=\"primary\" data-id="'+c.id+'" data-st="handling" onclick="complaintStatus(this.dataset.id,this.dataset.st)">Tangani</button>'}
-    if(c.status==='handling'){html+='<button class=\"primary\" data-id="'+c.id+'" data-st="resolved" onclick="complaintStatus(this.dataset.id,this.dataset.st)">Tandai selesai</button>'}
+    if(c.status==='open'){html+='<button class="w3-button w3-black w3-round w3-small" data-id="'+c.id+'" data-st="handling" onclick="complaintStatus(this.dataset.id,this.dataset.st)">Tangani</button>'}
+    if(c.status==='handling'){html+='<button class="w3-button w3-black w3-round w3-small" data-id="'+c.id+'" data-st="resolved" onclick="complaintStatus(this.dataset.id,this.dataset.st)">Tandai selesai</button>'}
     if(c.status==='resolved')html+='<span class="muted">Selesai ✅</span>';
     html+='</div>'}
   document.getElementById('complaints').innerHTML=html||
@@ -259,11 +279,11 @@ async function refreshMenu(){let d=await fetch('/api/menu').then(r=>r.json());
   for(let it of d.items){html+='<div class="card"><b>'+esc(it.name)+
     '</b> <span class="muted">Rp'+it.price_idr.toLocaleString('id-ID')+
     ' • stok '+it.stock+'</span><br>'+
-    '<button onclick="menuStock('+it.id+',0)">Tandai habis</button>'+
-    '<button onclick="menuStockDelta('+it.id+',10)">Stok +10</button> '+
-    '<input id="price-'+it.id+'" type="number" min="1" value="'+it.price_idr+
-    '" style="width:120px"> '+
-    '<button onclick="menuPrice('+it.id+')">Ubah harga</button></div>'}
+    '<button class="w3-button w3-white w3-border w3-round w3-small" onclick="menuStock('+it.id+',0)">Tandai habis</button>'+
+    '<button class="w3-button w3-white w3-border w3-round w3-small" onclick="menuStockDelta('+it.id+',10)">Stok +10</button> '+
+    '<input id="price-'+it.id+'" class="w3-input w3-border w3-round w3-small" type="number" min="1" value="'+it.price_idr+
+    '" style="width:140px;display:inline-block"> '+
+    '<button class="w3-button w3-white w3-border w3-round w3-small" onclick="menuPrice('+it.id+')">Ubah harga</button></div>'}
   document.getElementById('menuAdmin').innerHTML=html}
 async function menuStock(id,stock){await api('/api/menu/'+id+'/stock',
   {stock:stock});refreshMenu()}
@@ -280,11 +300,15 @@ setInterval(()=>{refresh();refreshComplaints()},3000);
 
 KITCHEN_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MejaBahasa — Dapur</title><style>""" + CSS + """</style></head>
-<body><h1>🔥 Dapur</h1><p class="muted">Tiket masuk dari staf.
+<title>MejaBahasa — Dapur</title><link rel="stylesheet" href="/static/w3.css"><style>""" + CSS + """</style></head>
+<body>
+<header class="w3-container w3-deep-orange w3-padding"><h1>🔥 Dapur</h1></header>
+<div class="w3-content w3-padding" style="max-width:760px">
+<p class="muted">Tiket masuk dari staf.
 Ubah statusnya seiring masakan berjalan. Memperbarui otomatis.</p>
-<p><a href="/koordinator">📋 Koordinator lapangan</a> · <a href="/staff">Dashboard staf</a></p>
+<p><a class="w3-button w3-white w3-border w3-round w3-small" href="/koordinator">📋 Koordinator lapangan</a> <a class="w3-button w3-white w3-border w3-round w3-small" href="/staff">🧑‍🍳 Dashboard staf</a></p>
 <div id="list"></div>
+</div>
 <script>
 function esc(s){return String(s).replace(/[&<>"']/g,
   c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -302,7 +326,7 @@ async function refresh(){let d=await fetch('/api/tickets').then(r=>r.json());
     html+='<div>'+t.items.map(i=>esc(i.qty)+'x '+esc(i.name)+
       (i.custom_note?' ['+esc(i.custom_note)+']':'')).join('<br>')+'</div>';
     if(NEXT[t.status]){let [st,label]=NEXT[t.status];
-      html+='<button class="primary" data-id="'+t.ticket_id+'" data-st="'+st+'" onclick="setStatus(this.dataset.id,this.dataset.st)">'+label+'</button>'}
+      html+='<button class="w3-button w3-black w3-round w3-small" data-id="'+t.ticket_id+'" data-st="'+st+'" onclick="setStatus(this.dataset.id,this.dataset.st)">'+label+'</button>'}
     else{html+='<span class="muted">Selesai ✅</span>'}
     html+='</div>'}
   document.getElementById('list').innerHTML=html||'<p class="muted">Belum ada tiket.</p>'}
@@ -312,14 +336,18 @@ refresh();setInterval(refresh,3000);
 
 OWNER_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MejaBahasa — Dashboard Owner</title><style>""" + CSS + """</style></head>
-<body><h1>👑 Dashboard Owner</h1><p class="muted">Ringkasan operasional dari
+<title>MejaBahasa — Dashboard Owner</title><link rel="stylesheet" href="/static/w3.css"><style>""" + CSS + """</style></head>
+<body>
+<header class="w3-container w3-dark-grey w3-padding"><h1>👑 Dashboard Owner</h1></header>
+<div class="w3-content w3-padding" style="max-width:760px">
+<p class="muted">Ringkasan operasional dari
 data live. Memperbarui otomatis tiap 10 detik.</p>
-<p class="warn">🔓 Demo tanpa login — halaman ini terbuka untuk siapa saja
-di jaringan ini, bukan halaman terkunci.</p>
-<p><a href="/">Tamu</a> · <a href="/staff">Staf</a> ·
-<a href="/kitchen">Dapur</a> · <a href="/koordinator">Koordinator</a></p>
+<div class="warn">🔓 Demo tanpa login — halaman ini terbuka untuk siapa saja
+di jaringan ini, bukan halaman terkunci.</div>
+<p><a class="w3-button w3-white w3-border w3-round w3-small" href="/">🍽️ Tamu</a> <a class="w3-button w3-white w3-border w3-round w3-small" href="/staff">🧑‍🍳 Staf</a>
+<a class="w3-button w3-white w3-border w3-round w3-small" href="/kitchen">🔥 Dapur</a> <a class="w3-button w3-white w3-border w3-round w3-small" href="/koordinator">📋 Koordinator</a></p>
 <div id="report"><p class="muted">Memuat…</p></div>
+</div>
 <script>
 function esc(s){return String(s).replace(/[&<>"']/g,
   c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -356,11 +384,15 @@ refresh();setInterval(refresh,10000);
 
 KOORDINATOR_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MejaBahasa — Koordinator Lapangan</title><style>""" + CSS + """</style></head>
-<body><h1>📋 Koordinator Lapangan</h1><p class="muted">Siapa masak/buat/antar
+<title>MejaBahasa — Koordinator Lapangan</title><link rel="stylesheet" href="/static/w3.css"><style>""" + CSS + """</style></head>
+<body>
+<header class="w3-container w3-teal w3-padding"><h1>📋 Koordinator Lapangan</h1></header>
+<div class="w3-content w3-padding" style="max-width:760px">
+<p class="muted">Siapa masak/buat/antar
 apa, untuk meja mana, dan target siapnya. Dihitung dari tiket live —
 bukan karangan. Memperbarui otomatis.</p>
 <div id="plan"></div>
+</div>
 <script>
 function esc(s){return String(s).replace(/[&<>"']/g,
   c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -502,6 +534,19 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_static(self, filename, content_type):
+        try:
+            data = (STATIC_DIR / filename).read_bytes()
+        except OSError:
+            self._send_json(404, {"ok": False,
+                                  "error": "file statis tidak ditemukan"})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", content_type + "; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def _read_json(self):
         length = int(self.headers.get("Content-Length") or 0)
         if not length:
@@ -529,6 +574,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(200, KOORDINATOR_HTML)
             elif path == "/owner":
                 self._send_html(200, OWNER_HTML)
+            elif path == "/static/w3.css":
+                self._send_static("w3.css", "text/css")
             elif path == "/api/plan":
                 table = parse_qs(
                     urlsplit(self.path).query).get("table", [None])[0]

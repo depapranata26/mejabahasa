@@ -25,6 +25,7 @@ _MIGRATIONS = {
         ("is_vegetarian", "INTEGER NOT NULL DEFAULT 0"),
         ("available_from", "TEXT"),
         ("available_to", "TEXT"),
+        ("image_url", "TEXT NOT NULL DEFAULT ''"),
     ],
     "orders": [
         ("allergy_notes", "TEXT NOT NULL DEFAULT ''"),
@@ -54,8 +55,8 @@ def _insert_menu(conn, menu):
         "INSERT OR REPLACE INTO menu_items"
         " (id, name, category, price_idr, stock, description,"
         "  ingredients_json, allergens_json, spice_level, is_vegetarian,"
-        "  available_from, available_to)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "  available_from, available_to, image_url)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
             (
                 it["id"],
@@ -70,6 +71,7 @@ def _insert_menu(conn, menu):
                 1 if it.get("is_vegetarian") else 0,
                 it.get("available_from"),
                 it.get("available_to"),
+                it.get("image", "") or it.get("image_url", ""),
             )
             for it in menu["items"]
         ],

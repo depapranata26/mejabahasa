@@ -83,12 +83,13 @@ def _translated_menu(lang, db_path):
                     "name": t.get("name") or it.get("name"),
                     "description": t.get("description")
                     or it.get("description")})
-    try:
-        cache_path.write_text(json.dumps(
-            {"source_hash": src_sig, "items": out},
-            ensure_ascii=False), encoding="utf-8")
-    except OSError:
-        pass
+    if did_translate:
+        try:
+            cache_path.write_text(json.dumps(
+                {"source_hash": src_sig, "items": out},
+                ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
     return out, did_translate
 
 CSS = """

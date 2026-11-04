@@ -87,13 +87,22 @@ HARD RULES — violating any of these is a failure:
    language and ask how they want to proceed — do not retry with a guessed
    value.
 7. ALLERGY SAFETY (mandatory, never skip): BEFORE calling create_order,
-   you MUST ask the guest about allergies, dietary restrictions, and
-   diet preferences, in the guest's language. Ask this question ONCE per
-   draft — never repeat it twice for the same order. If the guest replies
-   affirmatively without naming any allergen ("lanjut", "oke", "ya",
-   "yes", "setuju", "tidak ada", "nggak ada", "aman", "gak ada"),
-   treat it as NO allergies and proceed to create the draft immediately.
-   Do NOT loop back to the allergy question.
+   you MUST ask the guest about allergies, dietary restrictions, diet
+   preferences, AND disliked ingredients, in the guest's language. Ask
+   this question ONCE per draft — never repeat it twice for the same
+   order. If the guest replies affirmatively without naming any allergen
+   ("lanjut", "oke", "ya", "yes", "setuju", "tidak ada", "nggak ada",
+   "aman", "gak ada"), treat it as NO allergies and proceed to create
+   the draft immediately. Do NOT loop back to the allergy question.
+7b. DISLIKES ("tidak suka" / "tanpa"): when the guest says they dislike
+   an ingredient or wants a dish without it ("tidak suka bawang",
+   "tanpa telur", "no onion"), check the dish's ingredients (from
+   get_menu). If the ingredient is removable (garnish, topping, sauce
+   on the side), add a custom note like "tanpa bawang" to that item in
+   create_order/update_order and confirm. If it is a core ingredient
+   that cannot be removed (e.g. "tanpa ayam" on Ayam Goreng), say so
+   plainly and offer an alternative dish without it. Record dislikes
+   in dietary_notes so they persist for the session.
 8. If a create_order call fails with an allergy conflict, warn the guest
    clearly in their language (name the dish AND the allergen) and offer
    alternatives from the menu that do not contain it — never push the
@@ -481,10 +490,12 @@ def _translate_menu_batch(src, lang_name):
         f"{lang_name}. Output ONLY a raw JSON array, no markdown, no "
         "explanation, no other text. Each element: {\"id\": <same id>, "
         "\"name\": \"<translated dish name>\", \"description\": "
-        "\"<translated description>\"}. Dish names: translate naturally "
-        "but keep them recognizable (keep well-known dish names close to "
-        "the original). Descriptions: translate fully and appetizingly, "
-        "one short sentence each.\n\n"
+        "\"<translated description>\", \"ingredients\": [\"<translated "
+        "ingredient>\", ...]}. Dish names: translate naturally but keep "
+        "them recognizable (keep well-known dish names close to the "
+        "original). Descriptions: translate fully and appetizingly, one "
+        "short sentence each. Ingredients: translate each item in the "
+        "list, keep the same order and count.\n\n"
         + json.dumps(src, ensure_ascii=False)
     )
     content, _ = _call_model(
@@ -502,17 +513,19 @@ def _translate_menu_batch(src, lang_name):
 
 
 def translate_menu(items, target_lang):
-    """Translate menu item names+descriptions via the model.
+    """Translate menu item names+descriptions+ingredients via the model.
 
-    ``items``: list of dicts with id/name/description. Returns a dict
-    {id: {"name": ..., "description": ...}}. Raises on API failure —
-    the caller decides the fallback. Diterjemahkan per batch 4 item
-    agar respon model tidak terpotong.
+    ``items``: list of dicts with id/name/description/ingredients.
+    Returns a dict {id: {"name": ..., "description": ...,
+    "ingredients": [...]}}. Raises on API failure — the caller decides
+    the fallback. Diterjemahkan per batch 4 item agar respon model
+    tidak terpotong.
     """
     lang_name = _LANG_NAMES.get(target_lang, target_lang)
     src = [
         {"id": it["id"], "name": it.get("name", ""),
-         "description": it.get("description", "")}
+         "description": it.get("description", ""),
+         "ingredients": it.get("ingredients", [])}
         for it in items
     ]
     out = {}
@@ -521,6 +534,7 @@ def translate_menu(items, target_lang):
             out[int(row["id"])] = {
                 "name": row.get("name", ""),
                 "description": row.get("description", ""),
+                "ingredients": row.get("ingredients", []),
             }
     return out
 

@@ -20,6 +20,7 @@ endpoint needs the Baseten credential (Secure Vault, same pattern as
 test_baseten.py); dashboard and kitchen work without any model key.
 """
 import json
+import re
 import sqlite3
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -892,6 +893,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(200, OWNER_HTML)
             elif path == "/static/w3.css":
                 self._send_static("w3.css", "text/css")
+            elif path.startswith("/static/menu/"):
+                fname = path[len("/static/menu/"):]
+                if not re.fullmatch(r"[A-Za-z0-9_-]+\.(jpg|jpeg|png|webp)",
+                                    fname):
+                    self._send_json(404, {"ok": False,
+                                          "error": "file tidak valid"})
+                    return
+                ctype = {"jpg": "image/jpeg", "jpeg": "image/jpeg",
+                         "png": "image/png",
+                         "webp": "image/webp"}[fname.rsplit(".", 1)[1]]
+                self._send_static("menu/" + fname, ctype)
             elif path == "/api/plan":
                 table = parse_qs(
                     urlsplit(self.path).query).get("table", [None])[0]

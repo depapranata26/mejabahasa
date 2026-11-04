@@ -507,6 +507,8 @@ def translate_menu(items, target_lang):
         cleaned = re.sub(r"```(?:json)?", "", content)
         m = re.search(r"\[.*\]", cleaned, re.DOTALL)
     if not m:
+        print(f"[translate_menu] reply tak ter-parse ({target_lang}, "
+              f"{len(content)} chars): {content[:400]!r}", flush=True)
         raise RuntimeError("translate_menu: no JSON array in model reply")
     out = {}
     for row in json.loads(m.group(0)):

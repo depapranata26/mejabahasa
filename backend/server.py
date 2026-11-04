@@ -34,6 +34,58 @@ STATIC_DIR = REPO_ROOT / "static"
 from backend import complaints, coordinator, menu_admin, queue_estimate, report, seed, tools  # noqa: E402
 from backend.config import DATABASE_PATH  # noqa: E402
 
+import hashlib  # noqa: E402
+
+
+def _translated_menu(lang, db_path):
+    """Menu items with name/description translated to ``lang`` via AI.
+
+    Translations are cached in data/menu_i18n/<lang>.json keyed by a
+    hash of the source menu — editing the menu invalidates the cache.
+    Falls back to the untranslated menu when translation fails.
+    """
+    from backend import agent
+    items = tools.get_menu(db_path=db_path)
+    src_sig = hashlib.md5(json.dumps(
+        [(it["id"], it.get("name"), it.get("price_idr"),
+          it.get("description")) for it in items],
+        ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    cache_dir = REPO_ROOT / "data" / "menu_i18n"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / f"{lang}.json"
+    if cache_path.exists():
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if cached.get("source_hash") == src_sig:
+                return cached["items"]
+        except (json.JSONDecodeError, KeyError, OSError):
+            pass
+    if lang == "id":
+        translated = {
+            it["id"]: {"name": it.get("name", ""),
+                       "description": it.get("description", "")}
+            for it in items
+        }
+    else:
+        try:
+            translated = agent.translate_menu(items, lang)
+        except Exception:
+            translated = {}
+    out = []
+    for it in items:
+        t = translated.get(it["id"], {})
+        out.append({**it,
+                    "name": t.get("name") or it.get("name"),
+                    "description": t.get("description")
+                    or it.get("description")})
+    try:
+        cache_path.write_text(json.dumps(
+            {"source_hash": src_sig, "items": out},
+            ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+    return out
+
 CSS = """
 /* Tema TipTop: coklat tua + emas + krem (di atas W3.CSS). */
 body{background:#faf3df;color:#2b1a08}
@@ -99,10 +151,12 @@ otomatis.</p>
 <option value="nl">🇳🇱 Nederlands</option>
 <option value="tr">🇹🇷 Türkçe</option>
 </select></div>
-<div class="w3-margin-top"><button id="menuBtn" class="w3-button w3-white w3-border w3-round w3-small" onclick="toggleMenu()">📖 Lihat menu</button></div>
-<div id="menuList" style="text-align:left"></div>
 <label class="w3-margin-top w3-block" style="text-align:left"><span data-i18n="tableLabel">Nomor meja</span> <input id="table" class="w3-input w3-border" value="A12"></label>
 <button class="w3-button w3-black w3-round w3-margin-top w3-large" style="width:100%" onclick="startOrder()" data-i18n="start">Mulai Pesan 🍽️</button>
+</div>
+<div id="menuSection" style="display:none">
+<div class="w3-margin-top"><button id="menuBtn" class="w3-button w3-white w3-border w3-round w3-small" onclick="toggleMenu()">📖 Lihat menu</button></div>
+<div id="menuList" style="text-align:left"></div>
 </div>
 <div id="chatSection" style="display:none">
 <div id="log" class="w3-margin-top"></div>
@@ -120,9 +174,11 @@ otomatis.</p>
 </div>
 <script>
 function startOrder(){document.getElementById('welcome').style.display='none';
+document.getElementById('menuSection').style.display='';
 document.getElementById('chatSection').style.display='';
 document.getElementById('msg').focus();
-show('MejaBahasa',I18N[uiLang].greet)}
+show('MejaBahasa',I18N[uiLang].greet);
+menuOpen=true;updateMenuBtn();loadMenu()}
 let history=[];let lastOrder=null;let statusTimer=null;let complaintTimer=null;
 let qrTable=new URLSearchParams(location.search).get('table');
 if(qrTable)document.getElementById('table').value=qrTable;
@@ -215,109 +271,109 @@ const I18N={
   greet:'Halo! Selamat datang di MejaBahasa. Mau pesan apa? Tulis aja dengan bahasa kamu sendiri.',
   tableLabel:'Nomor meja',msgPh:'Tulis pesananmu di sini…',send:'Kirim',
   complaintPh:'Ada keluhan? Tulis di sini…',complaintBtn:'Laporkan keluhan',
-  menuBtn:'📖 Lihat menu',typing:'MejaBahasa sedang mengetik…',close:'Tutup'},
+  menuBtn:'📖 Lihat menu',typing:'MejaBahasa sedang mengetik…',soldOut:'HABIS',close:'Tutup'},
  en:{subtitle:'Scan the table QR, then order in your own language. The AI detects it automatically.',
   welcomeTitle:'Welcome!',start:'Start Ordering 🍽️',chooseLang:'Choose your language',
   greet:'Hello! Welcome to MejaBahasa. What would you like to order? Just type in your own language.',
   tableLabel:'Table number',msgPh:'Type your order here…',send:'Send',
   complaintPh:'Any complaint? Write it here…',complaintBtn:'Report complaint',
-  menuBtn:'📖 Browse menu',typing:'MejaBahasa is typing…',close:'Close'},
+  menuBtn:'📖 Browse menu',typing:'MejaBahasa is typing…',soldOut:'SOLD OUT',close:'Close'},
  zh:{subtitle:'扫描餐桌二维码，用您自己的语言点餐。AI 会自动识别语言。',
   welcomeTitle:'欢迎光临！',start:'开始点餐 🍽️',chooseLang:'选择您的语言',
   greet:'您好！欢迎使用 MejaBahasa。您想点什么？用您自己的语言输入即可。',
   tableLabel:'桌号',msgPh:'在此输入您的订单…',send:'发送',
   complaintPh:'有投诉？请写在这里…',complaintBtn:'提交投诉',
-  menuBtn:'📖 查看菜单',typing:'MejaBahasa 正在输入…',close:'关闭'},
+  menuBtn:'📖 查看菜单',typing:'MejaBahasa 正在输入…',soldOut:'售罄',close:'关闭'},
  ko:{subtitle:'테이블 QR을 스캔하고 원하는 언어로 주문하세요. AI가 언어를 자동 감지합니다.',
   welcomeTitle:'환영합니다!',start:'주문 시작 🍽️',chooseLang:'언어 선택',
   greet:'안녕하세요! MejaBahasa에 오신 것을 환영합니다. 무엇을 주문하시겠어요? 편한 언어로 입력하세요.',
   tableLabel:'테이블 번호',msgPh:'주문을 입력하세요…',send:'보내기',
   complaintPh:'불만 사항이 있으세요? 여기에 작성하세요…',complaintBtn:'불만 접수',
-  menuBtn:'📖 메뉴 보기',typing:'MejaBahasa가 입력 중…',close:'닫기'},
+  menuBtn:'📖 메뉴 보기',typing:'MejaBahasa가 입력 중…',soldOut:'품절',close:'닫기'},
  ja:{subtitle:'テーブルのQRをスキャンして、あなたの言語で注文できます。AIが言語を自動検出します。',
   welcomeTitle:'ようこそ！',start:'注文を開始 🍽️',chooseLang:'言語を選択',
   greet:'こんにちは！MejaBahasaへようこそ。ご注文は何にしますか？あなたの言語で入力してください。',
   tableLabel:'テーブル番号',msgPh:'注文を入力…',send:'送信',
   complaintPh:'苦情がありますか？こちらに記入…',complaintBtn:'苦情を報告',
-  menuBtn:'📖 メニューを見る',typing:'MejaBahasaが入力中…',close:'閉じる'},
+  menuBtn:'📖 メニューを見る',typing:'MejaBahasaが入力中…',soldOut:'売り切れ',close:'閉じる'},
  ms:{subtitle:'Imbas QR meja, kemudian pesan dalam bahasa anda sendiri. AI mengesan bahasanya secara automatik.',
   welcomeTitle:'Selamat datang!',start:'Mula Memesan 🍽️',chooseLang:'Pilih bahasa anda',
   greet:'Hai! Selamat datang ke MejaBahasa. Nak pesan apa? Tulis sahaja dalam bahasa anda sendiri.',
   tableLabel:'Nombor meja',msgPh:'Tulis pesanan anda di sini…',send:'Hantar',
   complaintPh:'Ada aduan? Tulis di sini…',complaintBtn:'Laporkan aduan',
-  menuBtn:'📖 Lihat menu',typing:'MejaBahasa sedang menaip…',close:'Tutup'},
+  menuBtn:'📖 Lihat menu',typing:'MejaBahasa sedang menaip…',soldOut:'HABIS',close:'Tutup'},
  ar:{subtitle:'امسح رمز QR الخاص بالطاولة، ثم اطلب بلغتك الخاصة. سيكتشف الذكاء الاصطناعي اللغة تلقائيًا.',
   welcomeTitle:'أهلاً وسهلاً!',start:'ابدأ الطلب 🍽️',chooseLang:'اختر لغتك',
   greet:'مرحباً! أهلاً بك في MejaBahasa. ماذا تريد أن تطلب؟ اكتب بلغتك الخاصة فقط.',
   tableLabel:'رقم الطاولة',msgPh:'اكتب طلبك هنا…',send:'إرسال',
   complaintPh:'هل لديك شكوى؟ اكتبها هنا…',complaintBtn:'الإبلاغ عن شكوى',
-  menuBtn:'📖 عرض القائمة',typing:'MejaBahasa يكتب…',close:'إغلاق'},
+  menuBtn:'📖 عرض القائمة',typing:'MejaBahasa يكتب…',soldOut:'نفد',close:'إغلاق'},
  hi:{subtitle:'टेबल का QR स्कैन करें, फिर अपनी भाषा में ऑर्डर करें। AI भाषा को अपने आप पहचान लेगा।',
   welcomeTitle:'स्वागत है!',start:'ऑर्डर शुरू करें 🍽️',chooseLang:'अपनी भाषा चुनें',
   greet:'नमस्ते! MejaBahasa में आपका स्वागत है। आप क्या ऑर्डर करना चाहेंगे? बस अपनी भाषा में लिखें।',
   tableLabel:'टेबल नंबर',msgPh:'अपना ऑर्डर यहाँ लिखें…',send:'भेजें',
   complaintPh:'कोई शिकायत? यहाँ लिखें…',complaintBtn:'शिकायत दर्ज करें',
-  menuBtn:'📖 मेनू देखें',typing:'MejaBahasa लिख रहा है…',close:'बंद करें'},
+  menuBtn:'📖 मेनू देखें',typing:'MejaBahasa लिख रहा है…',soldOut:'समाप्त',close:'बंद करें'},
  th:{subtitle:'สแกน QR โต๊ะ แล้วสั่งด้วยภาษาของคุณเอง AI จะตรวจจับภาษาอัตโนมัติ',
   welcomeTitle:'ยินดีต้อนรับ!',start:'เริ่มสั่งอาหาร 🍽️',chooseLang:'เลือกภาษาของคุณ',
   greet:'สวัสดี! ยินดีต้อนรับสู่ MejaBahasa ต้องการสั่งอะไร? พิมพ์ด้วยภาษาของคุณได้เลย',
   tableLabel:'หมายเลขโต๊ะ',msgPh:'พิมพ์คำสั่งซื้อที่นี่…',send:'ส่ง',
   complaintPh:'มีข้อร้องเรียน? เขียนที่นี่…',complaintBtn:'แจ้งข้อร้องเรียน',
-  menuBtn:'📖 ดูเมนู',typing:'MejaBahasa กำลังพิมพ์…',close:'ปิด'},
+  menuBtn:'📖 ดูเมนู',typing:'MejaBahasa กำลังพิมพ์…',soldOut:'หมด',close:'ปิด'},
  vi:{subtitle:'Quét mã QR của bàn, sau đó gọi món bằng ngôn ngữ của bạn. AI sẽ tự động nhận diện ngôn ngữ.',
   welcomeTitle:'Chào mừng!',start:'Bắt đầu gọi món 🍽️',chooseLang:'Chọn ngôn ngữ của bạn',
   greet:'Xin chào! Chào mừng bạn đến với MejaBahasa. Bạn muốn gọi món gì? Chỉ cần nhập bằng ngôn ngữ của bạn.',
   tableLabel:'Số bàn',msgPh:'Nhập món gọi của bạn tại đây…',send:'Gửi',
   complaintPh:'Có khiếu nại? Viết tại đây…',complaintBtn:'Báo cáo khiếu nại',
-  menuBtn:'📖 Xem thực đơn',typing:'MejaBahasa đang nhập…',close:'Đóng'},
+  menuBtn:'📖 Xem thực đơn',typing:'MejaBahasa đang nhập…',soldOut:'Hết hàng',close:'Đóng'},
  es:{subtitle:'Escanea el QR de la mesa y pide en tu propio idioma. La IA detecta el idioma automáticamente.',
   welcomeTitle:'¡Bienvenido!',start:'Empezar a pedir 🍽️',chooseLang:'Elige tu idioma',
   greet:'¡Hola! Bienvenido a MejaBahasa. ¿Qué te gustaría pedir? Solo escribe en tu propio idioma.',
   tableLabel:'Número de mesa',msgPh:'Escribe tu pedido aquí…',send:'Enviar',
   complaintPh:'¿Alguna queja? Escríbela aquí…',complaintBtn:'Reportar queja',
-  menuBtn:'📖 Ver menú',typing:'MejaBahasa está escribiendo…',close:'Cerrar'},
+  menuBtn:'📖 Ver menú',typing:'MejaBahasa está escribiendo…',soldOut:'AGOTADO',close:'Cerrar'},
  fr:{subtitle:'Scannez le QR de la table, puis commandez dans votre propre langue. L’IA détecte la langue automatiquement.',
   welcomeTitle:'Bienvenue !',start:'Commencer à commander 🍽️',chooseLang:'Choisissez votre langue',
   greet:'Bonjour ! Bienvenue sur MejaBahasa. Que souhaitez-vous commander ? Écrivez simplement dans votre propre langue.',
   tableLabel:'Numéro de table',msgPh:'Écrivez votre commande ici…',send:'Envoyer',
   complaintPh:'Une plainte ? Écrivez-la ici…',complaintBtn:'Signaler une plainte',
-  menuBtn:'📖 Voir le menu',typing:'MejaBahasa écrit…',close:'Fermer'},
+  menuBtn:'📖 Voir le menu',typing:'MejaBahasa écrit…',soldOut:'ÉPUISÉ',close:'Fermer'},
  de:{subtitle:'Scannen Sie den QR-Code des Tisches und bestellen Sie in Ihrer eigenen Sprache. Die KI erkennt die Sprache automatisch.',
   welcomeTitle:'Willkommen!',start:'Bestellung starten 🍽️',chooseLang:'Wählen Sie Ihre Sprache',
   greet:'Hallo! Willkommen bei MejaBahasa. Was möchten Sie bestellen? Schreiben Sie einfach in Ihrer eigenen Sprache.',
   tableLabel:'Tischnummer',msgPh:'Ihre Bestellung hier eingeben…',send:'Senden',
   complaintPh:'Beschwerde? Hier schreiben…',complaintBtn:'Beschwerde melden',
-  menuBtn:'📖 Menü ansehen',typing:'MejaBahasa schreibt…',close:'Schließen'},
+  menuBtn:'📖 Menü ansehen',typing:'MejaBahasa schreibt…',soldOut:'AUSVERKAUFT',close:'Schließen'},
  ru:{subtitle:'Отсканируйте QR-код стола и заказывайте на своём языке. ИИ определит язык автоматически.',
   welcomeTitle:'Добро пожаловать!',start:'Начать заказ 🍽️',chooseLang:'Выберите ваш язык',
   greet:'Здравствуйте! Добро пожаловать в MejaBahasa. Что бы вы хотели заказать? Просто напишите на своём языке.',
   tableLabel:'Номер стола',msgPh:'Введите ваш заказ здесь…',send:'Отправить',
   complaintPh:'Есть жалоба? Напишите здесь…',complaintBtn:'Сообщить о жалобе',
-  menuBtn:'📖 Смотреть меню',typing:'MejaBahasa печатает…',close:'Закрыть'},
+  menuBtn:'📖 Смотреть меню',typing:'MejaBahasa печатает…',soldOut:'НЕТ В НАЛИЧИИ',close:'Закрыть'},
  pt:{subtitle:'Escaneie o QR da mesa e peça no seu próprio idioma. A IA detecta o idioma automaticamente.',
   welcomeTitle:'Bem-vindo!',start:'Começar a pedir 🍽️',chooseLang:'Escolha seu idioma',
   greet:'Olá! Bem-vindo ao MejaBahasa. O que você gostaria de pedir? É só escrever no seu próprio idioma.',
   tableLabel:'Número da mesa',msgPh:'Digite seu pedido aqui…',send:'Enviar',
   complaintPh:'Alguma reclamação? Escreva aqui…',complaintBtn:'Reportar reclamação',
-  menuBtn:'📖 Ver cardápio',typing:'MejaBahasa está digitando…',close:'Fechar'},
+  menuBtn:'📖 Ver cardápio',typing:'MejaBahasa está digitando…',soldOut:'ESGOTADO',close:'Fechar'},
  it:{subtitle:'Scansiona il QR del tavolo e ordina nella tua lingua. L’IA rileva la lingua automaticamente.',
   welcomeTitle:'Benvenuto!',start:'Inizia a ordinare 🍽️',chooseLang:'Scegli la tua lingua',
   greet:'Ciao! Benvenuto su MejaBahasa. Cosa vorresti ordinare? Scrivi pure nella tua lingua.',
   tableLabel:'Numero del tavolo',msgPh:'Scrivi il tuo ordine qui…',send:'Invia',
   complaintPh:'Un reclamo? Scrivilo qui…',complaintBtn:'Segnala un reclamo',
-  menuBtn:'📖 Vedi il menu',typing:'MejaBahasa sta scrivendo…',close:'Chiudi'},
+  menuBtn:'📖 Vedi il menu',typing:'MejaBahasa sta scrivendo…',soldOut:'ESAURITO',close:'Chiudi'},
  nl:{subtitle:'Scan de QR van de tafel en bestel in je eigen taal. De AI herkent de taal automatisch.',
   welcomeTitle:'Welkom!',start:'Begin met bestellen 🍽️',chooseLang:'Kies je taal',
   greet:'Hallo! Welkom bij MejaBahasa. Wat wil je bestellen? Typ gewoon in je eigen taal.',
   tableLabel:'Tafelnummer',msgPh:'Typ je bestelling hier…',send:'Verstuur',
   complaintPh:'Een klacht? Schrijf hier…',complaintBtn:'Klacht melden',
-  menuBtn:'📖 Bekijk menu',typing:'MejaBahasa typt…',close:'Sluiten'},
+  menuBtn:'📖 Bekijk menu',typing:'MejaBahasa typt…',soldOut:'UITVERKOCHT',close:'Sluiten'},
  tr:{subtitle:'Masa QR kodunu taratın ve kendi dilinizde sipariş verin. Yapay zekâ dili otomatik olarak algılar.',
   welcomeTitle:'Hoş geldiniz!',start:'Siparişe başla 🍽️',chooseLang:'Dilinizi seçin',
   greet:'Merhaba! MejaBahasa’ya hoş geldiniz. Ne sipariş etmek istersiniz? Kendi dilinizde yazmanız yeterli.',
   tableLabel:'Masa numarası',msgPh:'Siparişinizi buraya yazın…',send:'Gönder',
   complaintPh:'Şikâyetiniz mi var? Buraya yazın…',complaintBtn:'Şikâyet bildir',
-  menuBtn:'📖 Menüyü gör',typing:'MejaBahasa yazıyor…',close:'Kapat'}};
+  menuBtn:'📖 Menüyü gör',typing:'MejaBahasa yazıyor…',soldOut:'TÜKENDİ',close:'Kapat'}};
 let uiLang='en',menuOpen=false,menuItems=null;
 function updateMenuBtn(){document.getElementById('menuBtn').textContent=
   menuOpen?I18N[uiLang].close+' ✕':I18N[uiLang].menuBtn}
@@ -327,7 +383,8 @@ function setLang(l){uiLang=l;let t=I18N[l];
  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{let k=el.getAttribute('data-i18n-ph');
    if(t[k])el.placeholder=t[k]});
  let sel=document.getElementById('langSel');if(sel)sel.value=l;
- updateMenuBtn()}
+ updateMenuBtn();
+ if(menuOpen)loadMenu(true)}
 const SPOKEN={id:'id-ID',en:'en-US',ms:'ms-MY',zh:'zh-CN',ko:'ko-KR',ja:'ja-JP',ar:'ar-SA',hi:'hi-IN',th:'th-TH',vi:'vi-VN',es:'es-ES',fr:'fr-FR',de:'de-DE',ru:'ru-RU',pt:'pt-PT',it:'it-IT',nl:'nl-NL',tr:'tr-TR'};
 setLang('en');
 // --- Input suara (Web Speech API), disembunyikan kalau tak didukung ---
@@ -348,16 +405,34 @@ function speak(text){if(!speakReply||!('speechSynthesis' in window))return;
  try{let u=new SpeechSynthesisUtterance(text);u.lang=(SPOKEN[uiLang]||'en-US');
   window.speechSynthesis.cancel();window.speechSynthesis.speak(u)}catch(err){}}
 // --- Browse menu tanpa chat ---
-async function toggleMenu(){menuOpen=!menuOpen;updateMenuBtn();
- let box=document.getElementById('menuList');
+let menuLang=null;
+async function loadMenu(force){let box=document.getElementById('menuList');
  if(!menuOpen){box.innerHTML='';return}
- if(!menuItems){let d=await fetch('/api/menu').then(r=>r.json());menuItems=d.items}
+ if(!force&&menuItems&&menuLang===uiLang){renderMenu();return}
+ box.innerHTML='<p class="muted">⏳ '+esc(I18N[uiLang].typing)+'</p>';
+ try{let d=await api('/api/menu_translated',{lang:uiLang});
+  menuItems=d.items;menuLang=uiLang}catch(e){
+  let d=await fetch('/api/menu').then(r=>r.json());
+  menuItems=d.items;menuLang='id'}
+ renderMenu()}
+function renderMenu(){let box=document.getElementById('menuList');
  let html='';
- for(let it of menuItems){html+='<div class="card"><b>'+esc(it.name)+
-   '</b> <span class="muted">Rp'+it.price_idr.toLocaleString('id-ID');
-  if(it.stock<=0)html+=' • <b>HABIS</b>';else html+=' • stok '+it.stock;
-  html+='</span></div>'}
+ for(let it of menuItems){
+  let img=it.image_url
+   ?'<img src="'+esc(it.image_url)+'" style="width:100%;height:150px;object-fit:cover" loading="lazy" onerror="this.style.display=\'none\'">'
+   :'<div style="width:100%;height:150px;display:flex;align-items:center;justify-content:center;font-size:52px;background:linear-gradient(180deg,#f0e6cf,#e2d3ac)">🍽️</div>';
+  html+='<div class="card" style="padding:0;overflow:hidden;margin-bottom:12px;cursor:pointer" onclick="pickItem('+it.id+')">'+img+
+   '<div style="padding:10px 12px"><b>'+esc(it.name)+'</b><br>'+
+   '<span style="color:#b8860b;font-weight:bold">Rp'+it.price_idr.toLocaleString('id-ID')+'</span>';
+  if(it.stock<=0)html+=' <span style="color:#a00">• <b>'+esc(I18N[uiLang].soldOut)+'</b></span>';
+  if(it.description)html+='<br><span class="muted">'+esc(it.description)+'</span>';
+  html+='</div></div>'}
  box.innerHTML=html||'<p class="muted">Menu kosong.</p>'}
+function pickItem(id){let it=(menuItems||[]).find(x=>x.id===id);
+ if(!it||it.stock<=0)return;
+ let inp=document.getElementById('msg');inp.value=it.name;inp.focus();
+ document.getElementById('chatSection').scrollIntoView()}
+async function toggleMenu(){menuOpen=!menuOpen;updateMenuBtn();loadMenu()}
 </script></body></html>"""
 
 STAFF_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
@@ -816,6 +891,11 @@ class Handler(BaseHTTPRequestHandler):
                 r = complaints.set_complaint_status(
                     int(parts[2]), body["status"], db_path=self.db_path)
                 self._send_json(200, {"ok": True, **r})
+            elif path == "/api/menu_translated":
+                lang = (body.get("lang") or "en").strip()[:5]
+                items = _translated_menu(lang, self.db_path)
+                self._send_json(200, {"ok": True, "lang": lang,
+                                      "items": items})
             elif len(parts) == 4 and parts[0] == "api" \
                     and parts[1] == "menu":
                 mid = int(parts[2])

@@ -73,13 +73,19 @@ GUEST_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 <body>
 <header class="w3-container w3-dark-grey w3-padding"><h1>🍽️ MejaBahasa</h1></header>
 <div class="w3-content w3-padding" style="max-width:680px">
-<div class="w3-bar w3-margin-top"><button id="langId" class="w3-button w3-black w3-round w3-small" onclick="setLang('id')">ID</button><button id="langEn" class="w3-button w3-white w3-border w3-round w3-small" onclick="setLang('en')">EN</button>
-<button id="menuBtn" class="w3-button w3-white w3-border w3-round w3-small" onclick="toggleMenu()">📖 Lihat menu</button></div>
+<div id="welcome" class="card" style="text-align:center;padding:32px 20px;margin-top:24px">
+<div style="font-size:48px">🍽️</div>
+<h2 style="color:#2b1a08;margin:8px 0" data-i18n="welcomeTitle">Selamat datang!</h2>
 <p class="muted" data-i18n="subtitle">Scan QR meja, lalu pesan
 dengan bahasa kamu sendiri. AI mendeteksi bahasanya
 otomatis.</p>
-<div id="menuList"></div>
-<label class="w3-margin-top w3-block"><span data-i18n="tableLabel">Nomor meja</span> <input id="table" class="w3-input w3-border" value="A12"></label>
+<div class="w3-bar w3-margin-top" style="justify-content:center;display:flex;gap:8px"><button id="langId" class="w3-button w3-black w3-round w3-small" onclick="setLang('id')">ID</button><button id="langEn" class="w3-button w3-white w3-border w3-round w3-small" onclick="setLang('en')">EN</button>
+<button id="menuBtn" class="w3-button w3-white w3-border w3-round w3-small" onclick="toggleMenu()">📖 Lihat menu</button></div>
+<div id="menuList" style="text-align:left"></div>
+<label class="w3-margin-top w3-block" style="text-align:left"><span data-i18n="tableLabel">Nomor meja</span> <input id="table" class="w3-input w3-border" value="A12"></label>
+<button class="w3-button w3-black w3-round w3-margin-top w3-large" style="width:100%" onclick="startOrder()" data-i18n="start">Mulai Pesan 🍽️</button>
+</div>
+<div id="chatSection" style="display:none">
 <div id="log" class="w3-margin-top"></div>
 <div id="actions"></div>
 <div id="statusBox"></div>
@@ -92,7 +98,12 @@ otomatis.</p>
 <button class="w3-button w3-white w3-border w3-round w3-margin-top" onclick="sendComplaint()" data-i18n="complaintBtn">Laporkan keluhan</button>
 <div id="complaintStatus" class="muted"></div></div>
 </div>
+</div>
 <script>
+function startOrder(){document.getElementById('welcome').style.display='none';
+document.getElementById('chatSection').style.display='';
+document.getElementById('msg').focus();
+show('MejaBahasa',I18N[uiLang].greet)}
 let history=[];let lastOrder=null;let statusTimer=null;let complaintTimer=null;
 let qrTable=new URLSearchParams(location.search).get('table');
 if(qrTable)document.getElementById('table').value=qrTable;
@@ -181,10 +192,14 @@ document.getElementById('msg').addEventListener('keydown',
 // --- Chrome bilingual (ID/EN): hanya label & tombol, bukan isi menu ---
 const I18N={
  id:{subtitle:'Scan QR meja, lalu pesan dengan bahasa kamu sendiri. AI mendeteksi bahasanya otomatis.',
+  welcomeTitle:'Selamat datang!',start:'Mulai Pesan 🍽️',
+  greet:'Halo! Selamat datang di MejaBahasa. Mau pesan apa? Tulis aja dengan bahasa kamu sendiri.',
   tableLabel:'Nomor meja',msgPh:'Tulis pesananmu di sini…',send:'Kirim',
   complaintPh:'Ada keluhan? Tulis di sini…',complaintBtn:'Laporkan keluhan',
   menuBtn:'📖 Lihat menu',typing:'MejaBahasa sedang mengetik…',close:'Tutup'},
  en:{subtitle:'Scan the table QR, then order in your own language. The AI detects it automatically.',
+  welcomeTitle:'Welcome!',start:'Start Ordering 🍽️',
+  greet:'Hello! Welcome to MejaBahasa. What would you like to order? Just type in your own language.',
   tableLabel:'Table number',msgPh:'Type your order here…',send:'Send',
   complaintPh:'Any complaint? Write it here…',complaintBtn:'Report complaint',
   menuBtn:'📖 Browse menu',typing:'MejaBahasa is typing…',close:'Close'}};

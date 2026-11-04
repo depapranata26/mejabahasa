@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS menu_items (
     is_vegetarian INTEGER NOT NULL DEFAULT 0
         CHECK (is_vegetarian IN (0, 1)),
     available_from TEXT DEFAULT NULL,
-    available_to TEXT DEFAULT NULL
+    available_to TEXT DEFAULT NULL,
+    image_url TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS orders (

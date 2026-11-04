@@ -568,6 +568,41 @@ def join_waiting_list(name, party_size, phone="", db_path=None):
     return result
 
 
+_ACTIVE_ORDER_STATUSES = ("draft", "confirmed", "acc_pending",
+                           "acc_accepted", "sent_to_kitchen")
+
+
+def get_table_status(db_path=None):
+    """Status okupansi semua meja yang pernah tercatat.
+
+    Meja = terisi kalau punya order aktif (draft/confirmed/acc_*/sent_to_kitchen).
+    Dipakai monitor staf dan info meja kosong untuk tamu waiting list.
+    """
+    conn = _connect(db_path)
+    try:
+        tables = conn.execute(
+            "SELECT DISTINCT table_no FROM orders ORDER BY table_no"
+        ).fetchall()
+        out = []
+        for t in tables:
+            tno = t["table_no"]
+            active = conn.execute(
+                "SELECT id, status FROM orders WHERE table_no = ?"
+                " AND status IN ('draft','confirmed','acc_pending',"
+                " 'acc_accepted','sent_to_kitchen')"
+                " ORDER BY id DESC LIMIT 1",
+                (tno,)).fetchone()
+            out.append({
+                "table_no": tno,
+                "occupied": active is not None,
+                "order_id": active["id"] if active else None,
+                "order_status": active["status"] if active else None,
+            })
+    finally:
+        conn.close()
+    return {"ok": True, "tables": out}
+
+
 def list_waiting_list(db_path=None):
     """Daftar antrean meja untuk staf (waiting + called)."""
     conn = _connect(db_path)

@@ -150,6 +150,35 @@ otomatis.</p>
 <option value="it">🇮🇹 Italiano</option>
 <option value="nl">🇳🇱 Nederlands</option>
 <option value="tr">🇹🇷 Türkçe</option>
+<option value="bn">🇧🇩 বাংলা</option>
+<option value="fa">🇮🇷 فارسی</option>
+<option value="ur">🇵🇰 اردو</option>
+<option value="sw">🇰🇪 Kiswahili</option>
+<option value="ha">🇳🇬 Hausa</option>
+<option value="yo">🇳🇬 Yorùbá</option>
+<option value="ig">🇳🇬 Igbo</option>
+<option value="am">🇪🇹 አማርኛ</option>
+<option value="ne">🇳🇵 नेपाली</option>
+<option value="si">🇱🇰 සිංහල</option>
+<option value="km">🇰🇭 ខ្មែរ</option>
+<option value="lo">🇱🇦 ລາວ</option>
+<option value="my">🇲🇲 မြန်မာ</option>
+<option value="ka">🇬🇪 ქართული</option>
+<option value="hy">🇦🇲 Հայերեն</option>
+<option value="az">🇦🇿 Azərbaycan</option>
+<option value="kk">🇰🇿 Қазақша</option>
+<option value="uz">🇺🇿 O'zbek</option>
+<option value="uk">🇺🇦 Українська</option>
+<option value="pl">🇵🇱 Polski</option>
+<option value="cs">🇨🇿 Čeština</option>
+<option value="hu">🇭🇺 Magyar</option>
+<option value="ro">🇷🇴 Română</option>
+<option value="el">🇬🇷 Ελληνικά</option>
+<option value="he">🇮🇱 עברית</option>
+<option value="da">🇩🇰 Dansk</option>
+<option value="sv">🇸🇪 Svenska</option>
+<option value="no">🇳🇴 Norsk</option>
+<option value="fi">🇫🇮 Suomi</option>
 </select></div>
 <label class="w3-margin-top w3-block" style="text-align:left"><span data-i18n="tableLabel">Nomor meja</span> <input id="table" class="w3-input w3-border" value="A12"></label>
 <button class="w3-button w3-black w3-round w3-margin-top w3-large" style="width:100%" onclick="startOrder()" data-i18n="start">Mulai Pesan 🍽️</button>
@@ -177,7 +206,7 @@ function startOrder(){document.getElementById('welcome').style.display='none';
 document.getElementById('menuSection').style.display='';
 document.getElementById('chatSection').style.display='';
 document.getElementById('msg').focus();
-show('MejaBahasa',I18N[uiLang].greet);
+show('MejaBahasa',T().greet);
 menuOpen=true;updateMenuBtn();loadMenu()}
 let history=[];let lastOrder=null;let statusTimer=null;let complaintTimer=null;
 let qrTable=new URLSearchParams(location.search).get('table');
@@ -198,7 +227,7 @@ async function send(){let inp=document.getElementById('msg');
   btn.disabled=true;inp.disabled=true;
   let log=document.getElementById('log');
   let typing=document.createElement('div');typing.className='msg muted';
-  typing.textContent=I18N[uiLang].typing;log.appendChild(typing);
+  typing.textContent=T().typing;log.appendChild(typing);
   try{inp.value='';
     show('Kamu',text);history.push({role:'user',content:text});
     let data=await api('/api/chat',{table_no:document.getElementById('table').value,
@@ -375,9 +404,15 @@ const I18N={
   complaintPh:'Şikâyetiniz mi var? Buraya yazın…',complaintBtn:'Şikâyet bildir',
   menuBtn:'📖 Menüyü gör',typing:'MejaBahasa yazıyor…',soldOut:'TÜKENDİ',close:'Kapat'}};
 let uiLang='en',menuOpen=false,menuItems=null;
+let uiCache={};
+function T(){return I18N[uiLang]||uiCache[uiLang]||I18N.en}
 function updateMenuBtn(){document.getElementById('menuBtn').textContent=
-  menuOpen?I18N[uiLang].close+' ✕':I18N[uiLang].menuBtn}
-function setLang(l){uiLang=l;let t=I18N[l];
+  menuOpen?T().close+' ✕':T().menuBtn}
+async function setLang(l){uiLang=l;let t=I18N[l];
+ if(!t){t=uiCache[l];
+  if(!t){try{let d=await api('/api/translate_ui',
+    {lang:l,strings:I18N.en});t=uiCache[l]=d.strings}
+   catch(e){t=I18N.en}}}
  document.querySelectorAll('[data-i18n]').forEach(el=>{let k=el.getAttribute('data-i18n');
    if(t[k])el.textContent=t[k]});
  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{let k=el.getAttribute('data-i18n-ph');
@@ -385,7 +420,7 @@ function setLang(l){uiLang=l;let t=I18N[l];
  let sel=document.getElementById('langSel');if(sel)sel.value=l;
  updateMenuBtn();
  if(menuOpen)loadMenu(true)}
-const SPOKEN={id:'id-ID',en:'en-US',ms:'ms-MY',zh:'zh-CN',ko:'ko-KR',ja:'ja-JP',ar:'ar-SA',hi:'hi-IN',th:'th-TH',vi:'vi-VN',es:'es-ES',fr:'fr-FR',de:'de-DE',ru:'ru-RU',pt:'pt-PT',it:'it-IT',nl:'nl-NL',tr:'tr-TR'};
+const SPOKEN={id:'id-ID',en:'en-US',ms:'ms-MY',zh:'zh-CN',ko:'ko-KR',ja:'ja-JP',ar:'ar-SA',hi:'hi-IN',th:'th-TH',vi:'vi-VN',es:'es-ES',fr:'fr-FR',de:'de-DE',ru:'ru-RU',pt:'pt-PT',it:'it-IT',nl:'nl-NL',tr:'tr-TR',bn:'bn-BD',fa:'fa-IR',ur:'ur-PK',sw:'sw-KE',ne:'ne-NP',si:'si-LK',uk:'uk-UA',pl:'pl-PL',cs:'cs-CZ',hu:'hu-HU',ro:'ro-RO',el:'el-GR',he:'he-IL',da:'da-DK',sv:'sv-SE',no:'nb-NO',fi:'fi-FI',hy:'hy-AM',ka:'ka-GE',az:'az-AZ',kk:'kk-KZ',uz:'uz-UZ'};
 setLang('en');
 // --- Input suara (Web Speech API), disembunyikan kalau tak didukung ---
 let speakReply=false;
@@ -409,7 +444,7 @@ let menuLang=null;
 async function loadMenu(force){let box=document.getElementById('menuList');
  if(!menuOpen){box.innerHTML='';return}
  if(!force&&menuItems&&menuLang===uiLang){renderMenu();return}
- box.innerHTML='<p class="muted">⏳ '+esc(I18N[uiLang].typing)+'</p>';
+ box.innerHTML='<p class="muted">⏳ '+esc(T().typing)+'</p>';
  try{let d=await api('/api/menu_translated',{lang:uiLang});
   menuItems=d.items;menuLang=uiLang}catch(e){
   let d=await fetch('/api/menu').then(r=>r.json());
@@ -424,7 +459,7 @@ function renderMenu(){let box=document.getElementById('menuList');
   html+='<div class="card" style="padding:0;overflow:hidden;margin-bottom:12px;cursor:pointer" onclick="pickItem('+it.id+')">'+img+
    '<div style="padding:10px 12px"><b>'+esc(it.name)+'</b><br>'+
    '<span style="color:#b8860b;font-weight:bold">Rp'+it.price_idr.toLocaleString('id-ID')+'</span>';
-  if(it.stock<=0)html+=' <span style="color:#a00">• <b>'+esc(I18N[uiLang].soldOut)+'</b></span>';
+  if(it.stock<=0)html+=' <span style="color:#a00">• <b>'+esc(T().soldOut)+'</b></span>';
   if(it.description)html+='<br><span class="muted">'+esc(it.description)+'</span>';
   html+='</div></div>'}
  box.innerHTML=html||'<p class="muted">Menu kosong.</p>'}
@@ -896,6 +931,35 @@ class Handler(BaseHTTPRequestHandler):
                 items = _translated_menu(lang, self.db_path)
                 self._send_json(200, {"ok": True, "lang": lang,
                                       "items": items})
+            elif path == "/api/translate_ui":
+                from backend import agent
+                lang = (body.get("lang") or "en").strip()[:5]
+                strings = body.get("strings") or {}
+                src_sig = hashlib.md5(json.dumps(
+                    strings, ensure_ascii=False,
+                    sort_keys=True).encode("utf-8")).hexdigest()
+                cache_dir = REPO_ROOT / "data" / "ui_i18n"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cache_path = cache_dir / f"{lang}.json"
+                hit = None
+                if cache_path.exists():
+                    try:
+                        cached = json.loads(
+                            cache_path.read_text(encoding="utf-8"))
+                        if cached.get("source_hash") == src_sig:
+                            hit = cached["strings"]
+                    except (json.JSONDecodeError, KeyError, OSError):
+                        pass
+                if hit is None:
+                    hit = agent.translate_ui(strings, lang)
+                    try:
+                        cache_path.write_text(json.dumps(
+                            {"source_hash": src_sig, "strings": hit},
+                            ensure_ascii=False), encoding="utf-8")
+                    except OSError:
+                        pass
+                self._send_json(200, {"ok": True, "lang": lang,
+                                      "strings": hit})
             elif len(parts) == 4 and parts[0] == "api" \
                     and parts[1] == "menu":
                 mid = int(parts[2])

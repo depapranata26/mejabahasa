@@ -103,6 +103,11 @@ HARD RULES — violating any of these is a failure:
    that cannot be removed (e.g. "tanpa ayam" on Ayam Goreng), say so
    plainly and offer an alternative dish without it. Record dislikes
    in dietary_notes so they persist for the session.
+7c. INGREDIENT QUESTIONS: when the guest asks what is in a dish
+   ("ada udang nggak?", "isinya apa?", "does it contain nuts?"),
+   answer from the dish's ingredients/allergens data (via get_menu)
+   in the guest's language. Never guess ingredients you have not
+   seen — if unsure, say the kitchen can confirm.
 8. If a create_order call fails with an allergy conflict, warn the guest
    clearly in their language (name the dish AND the allergen) and offer
    alternatives from the menu that do not contain it — never push the
@@ -490,12 +495,10 @@ def _translate_menu_batch(src, lang_name):
         f"{lang_name}. Output ONLY a raw JSON array, no markdown, no "
         "explanation, no other text. Each element: {\"id\": <same id>, "
         "\"name\": \"<translated dish name>\", \"description\": "
-        "\"<translated description>\", \"ingredients\": [\"<translated "
-        "ingredient>\", ...]}. Dish names: translate naturally but keep "
-        "them recognizable (keep well-known dish names close to the "
-        "original). Descriptions: translate fully and appetizingly, one "
-        "short sentence each. Ingredients: translate each item in the "
-        "list, keep the same order and count.\n\n"
+        "\"<translated description>\"}. Dish names: translate naturally "
+        "but keep them recognizable (keep well-known dish names close to "
+        "the original). Descriptions: translate fully and appetizingly, "
+        "one short sentence each.\n\n"
         + json.dumps(src, ensure_ascii=False)
     )
     content, _ = _call_model(
@@ -513,19 +516,17 @@ def _translate_menu_batch(src, lang_name):
 
 
 def translate_menu(items, target_lang):
-    """Translate menu item names+descriptions+ingredients via the model.
+    """Translate menu item names+descriptions via the model.
 
-    ``items``: list of dicts with id/name/description/ingredients.
-    Returns a dict {id: {"name": ..., "description": ...,
-    "ingredients": [...]}}. Raises on API failure — the caller decides
-    the fallback. Diterjemahkan per batch 4 item agar respon model
-    tidak terpotong.
+    ``items``: list of dicts with id/name/description. Returns a dict
+    {id: {"name": ..., "description": ...}}. Raises on API failure —
+    the caller decides the fallback. Diterjemahkan per batch 4 item
+    agar respon model tidak terpotong.
     """
     lang_name = _LANG_NAMES.get(target_lang, target_lang)
     src = [
         {"id": it["id"], "name": it.get("name", ""),
-         "description": it.get("description", ""),
-         "ingredients": it.get("ingredients", [])}
+         "description": it.get("description", "")}
         for it in items
     ]
     out = {}
@@ -534,7 +535,6 @@ def translate_menu(items, target_lang):
             out[int(row["id"])] = {
                 "name": row.get("name", ""),
                 "description": row.get("description", ""),
-                "ingredients": row.get("ingredients", []),
             }
     return out
 

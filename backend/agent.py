@@ -31,9 +31,23 @@ except ImportError:
     # Non-vault environment (e.g. VPS): pakai BASENTEN_API_KEY langsung.
     import os
 
-    def add_surrogate_to_request(req, *a, **k):
+    def _get_key():
         key = os.environ.get("BASENTEN_API_KEY", "")
-        req.add_header("Authorization", f"Bearer {key}")
+        if not key:
+            for p in ("/home/Depapranata/mejabahasa/.baseten_key",
+                      os.path.expanduser("~/mejabahasa/.baseten_key"),
+                      ".baseten_key"):
+                try:
+                    with open(p) as f:
+                        key = f.read().strip()
+                    if key:
+                        break
+                except OSError:
+                    continue
+        return key
+
+    def add_surrogate_to_request(req, *a, **k):
+        req.add_header("Authorization", f"Bearer {_get_key()}")
 
     def read_json_response(resp):
         return json.loads(resp.read().decode("utf-8"))

@@ -213,6 +213,9 @@ otomatis.</p>
 <div id="menuList" style="text-align:left"></div>
 </div>
 <button id="chatFab" onclick="toggleChat()" style="display:none;position:fixed;bottom:24px;right:24px;width:62px;height:62px;border-radius:50%;background:linear-gradient(180deg,#f0d189,#c9a24b);border:2px solid #8a6d2b;font-size:28px;z-index:1000;box-shadow:0 4px 14px rgba(0,0,0,.35);cursor:pointer" title="Chat">💬</button>
+<button id="cartFab" onclick="openCart()" style="display:none;position:fixed;bottom:100px;right:24px;width:62px;height:62px;border-radius:50%;background:linear-gradient(180deg,#f0d189,#c9a24b);border:2px solid #8a6d2b;font-size:28px;z-index:1000;box-shadow:0 4px 14px rgba(0,0,0,.35);cursor:pointer" title="Keranjang">🛒<span id="cartBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:#a00;color:#fff;border-radius:50%;min-width:24px;height:24px;line-height:24px;font-size:13px;font-weight:bold;text-align:center;padding:0 4px">0</span></button>
+<div id="cartModal" onclick="if(event.target===this)closeCart()" style="position:fixed;inset:0;background:rgba(24,14,4,.65);display:none;align-items:center;justify-content:center;z-index:1100;padding:18px"><div class="mbox" style="background:#fffdf8;border-radius:18px;max-width:420px;width:100%;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.4);max-height:90vh;overflow-y:auto"><div style="position:relative"><button class="mx" onclick="closeCart()" style="position:absolute;top:10px;right:10px;background:rgba(28,17,4,.7);color:#fff;border:none;border-radius:50%;width:34px;height:34px;font-size:16px;cursor:pointer;z-index:3">✕</button><div id="cartModalBody" style="padding:18px"></div></div></div></div>
+<div id="tableModal" onclick="if(event.target===this)closeTableModal()" style="position:fixed;inset:0;background:rgba(24,14,4,.65);display:none;align-items:center;justify-content:center;z-index:1200;padding:18px"><div class="mbox" style="background:#fffdf8;border-radius:18px;max-width:420px;width:100%;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.4);max-height:90vh;overflow-y:auto"><div style="position:relative"><button class="mx" onclick="closeTableModal()" style="position:absolute;top:10px;right:10px;background:rgba(28,17,4,.7);color:#fff;border:none;border-radius:50%;width:34px;height:34px;font-size:16px;cursor:pointer;z-index:3">✕</button><div id="tableModalBody" style="padding:18px"></div></div></div></div>
 <div id="dishModal" onclick="if(event.target===this)closeDish()"><div class="mbox"><div style="position:relative"><button class="mx" onclick="closeDish()">✕</button><div id="dishModalBody"></div></div></div></div>
 <div id="chatPanel" style="display:none;position:fixed;bottom:100px;right:16px;width:min(380px,calc(100vw - 32px));height:min(540px,72vh);background:#faf3df;border:2px solid #c9a24b;border-radius:14px;z-index:1000;box-shadow:0 8px 28px rgba(0,0,0,.35);overflow:hidden">
 <div style="background:linear-gradient(180deg,#2b1a08,#180d02);color:#f0d189;padding:10px 14px;font-weight:bold">🍽️ MejaBahasa<span style="float:right;cursor:pointer;padding:0 4px" onclick="toggleChat()">✕</span></div>
@@ -244,6 +247,7 @@ function startOrder(){try{
 document.getElementById('welcome').style.display='none';
 document.getElementById('menuSection').style.display='';
 document.getElementById('chatFab').style.display='';
+document.getElementById('cartFab').style.display='';
 show('MejaBahasa',T().greet);
 menuOpen=true;updateMenuBtn();loadMenu()
 }catch(e){try{document.getElementById('welcome').style.display='none';
@@ -277,7 +281,8 @@ async function send(){let inp=document.getElementById('msg');
     if(data.last_order_id){lastOrder=data.last_order_id;
       document.getElementById('actions').innerHTML='<p class="muted">Pesanan draft #'+
       lastOrder+' dibuat. Tekan Konfirmasi kalau sudah benar.</p>'+
-      '<button class="w3-button w3-black w3-round" onclick="confirmOrder()">Konfirmasi pesanan</button>'}}
+      '<button class="w3-button w3-black w3-round" onclick="confirmOrder()">Konfirmasi pesanan</button>';
+      if(tableNo==='A12')openTableModal()}}
   finally{typing.remove();btn.disabled=false;inp.disabled=false;inp.focus()}}
 async function confirmOrder(){let d=await api('/api/orders/'+lastOrder+'/confirm');
   if(!d.ok){show('Sistem','Gagal konfirmasi: '+esc(d.error));return}
@@ -339,13 +344,23 @@ const I18N={
   greet:'Halo! Selamat datang di MejaBahasa. Mau pesan apa? Tulis aja dengan bahasa kamu sendiri.',
   tableLabel:'Nomor meja',msgPh:'Tulis pesananmu di sini…',send:'Kirim',
   complaintPh:'Ada keluhan? Tulis di sini…',complaintBtn:'Laporkan keluhan',
-  menuBtn:'📖 Lihat menu',typing:'MejaBahasa sedang mengetik…',orderNow:'Pesan Sekarang',loadingMenu:'Menerjemahkan menu dengan AI…',soldOut:'HABIS',close:'Tutup'},
+  menuBtn:'📖 Lihat menu',typing:'MejaBahasa sedang mengetik…',orderNow:'Pesan Sekarang',loadingMenu:'Menerjemahkan menu dengan AI…',soldOut:'HABIS',close:'Tutup',
+  addCart:'🛒 Keranjang',cartTitle:'🛒 Keranjang',cartEmpty:'Keranjang masih kosong.',checkout:'Checkout ✅',cartTotal:'Total',
+  tableModalTitle:'📷 Scan QR Meja',tableModalDesc:'Scan QR di meja kamu, lalu masukkan nomor mejanya di bawah agar makanan diantar ke meja yang benar.',
+  tablePh:'Nomor meja (mis. B07)',tableSave:'Simpan nomor meja',noTable:'Belum dapat meja?',
+  takeawayBtn:'🥡 Takeaway (bawa pulang)',waitlistBtn:'📋 Daftar waiting list',takeawaySet:'Mode takeaway aktif — makanan dibungkus untuk dibawa pulang.',
+  waitlistPh:'Nama kamu',partyPh:'Jumlah orang',waitlistJoin:'Daftar antrean'},
  en:{subtitle:'Scan the table QR, then order in your own language. The AI detects it automatically.',
   welcomeTitle:'Welcome!',start:'Start Ordering 🍽️',chooseLang:'Choose your language',
   greet:'Hello! Welcome to MejaBahasa. What would you like to order? Just type in your own language.',
   tableLabel:'Table number',msgPh:'Type your order here…',send:'Send',
   complaintPh:'Any complaint? Write it here…',complaintBtn:'Report complaint',
-  menuBtn:'📖 Browse menu',typing:'MejaBahasa is typing…',orderNow:'Order Now',loadingMenu:'Translating menu with AI…',soldOut:'SOLD OUT',close:'Close'},
+  menuBtn:'📖 Browse menu',typing:'MejaBahasa is typing…',orderNow:'Order Now',loadingMenu:'Translating menu with AI…',soldOut:'SOLD OUT',close:'Close',
+  addCart:'🛒 Add to cart',cartTitle:'🛒 Cart',cartEmpty:'Your cart is empty.',checkout:'Checkout ✅',cartTotal:'Total',
+  tableModalTitle:'📷 Scan Table QR',tableModalDesc:'Scan the QR on your table, then enter the table number below so food is delivered to the right table.',
+  tablePh:'Table number (e.g. B07)',tableSave:'Save table number',noTable:'No table yet?',
+  takeawayBtn:'🥡 Takeaway',waitlistBtn:'📋 Join waiting list',takeawaySet:'Takeaway mode on — food will be packed to go.',
+  waitlistPh:'Your name',partyPh:'Party size',waitlistJoin:'Join queue'},
  zh:{subtitle:'扫描餐桌二维码，用您自己的语言点餐。AI 会自动识别语言。',
   welcomeTitle:'欢迎光临！',start:'开始点餐 🍽️',chooseLang:'选择您的语言',
   greet:'您好！欢迎使用 MejaBahasa。您想点什么？用您自己的语言输入即可。',
@@ -507,7 +522,9 @@ function renderMenu(){let box=document.getElementById('menuList');
    '<span class="tbadge">Rp'+it.price_idr.toLocaleString('id-ID')+'</span>'+
    (it.stock<=0?'<span class="tout">'+esc(T().soldOut)+'</span>':'')+
    '</div><div class="tbd"><div class="tcat">'+esc(catLabel(it.category))+'</div>'+
-   '<h3 class="tname">'+esc(it.name)+'</h3></div></article>'}
+   '<h3 class="tname">'+esc(it.name)+'</h3>'+
+   (it.stock>0?'<button class="w3-button w3-black w3-round w3-small" style="width:100%;margin-top:6px" onclick="addToCart('+it.id+',event)">'+esc(T().addCart)+'</button>':'')+
+   '</div></article>'}
  box.innerHTML=html+'</div>'||'<p class="muted">Menu kosong.</p>'}
 const CAT_LABEL={makanan_utama:{id:'Makanan Utama',en:'Main Course'},minuman:{id:'Minuman',en:'Drinks'},penutup:{id:'Penutup',en:'Dessert'}};
 function catLabel(c){let m=CAT_LABEL[c];if(!m)return String(c).replace(/_/g,' ');
@@ -521,7 +538,8 @@ function openDish(id){let it=(menuItems||[]).find(x=>x.id===id);if(!it)return;
   '<div style="margin-bottom:10px"><span class="tbadge" style="position:static">Rp'+it.price_idr.toLocaleString('id-ID')+'</span>'+
   (it.stock<=0?' <b style="color:#a00">'+esc(T().soldOut)+'</b>':'')+'</div>'+
   (it.description?'<p class="muted">'+esc(it.description)+'</p>':'')+
-  (it.stock>0?'<button class="w3-button w3-black w3-round w3-large" style="width:100%" onclick="orderDish('+it.id+')">'+esc(T().orderNow)+'</button>':'')+
+  (it.stock>0?'<button class="w3-button w3-black w3-round w3-large" style="width:100%;margin-bottom:6px" onclick="orderDish('+it.id+')">'+esc(T().orderNow)+'</button>'+
+  '<button class="w3-button w3-white w3-border w3-round w3-large" style="width:100%" onclick="addToCart('+it.id+');closeDish()">'+esc(T().addCart)+'</button>':'')+
   '</div>';
  document.getElementById('dishModal').style.display='flex'}
 function closeDish(){document.getElementById('dishModal').style.display='none'}
@@ -532,6 +550,83 @@ function pickItem(id){let it=(menuItems||[]).find(x=>x.id===id);
  let inp=document.getElementById('msg');inp.value=it.name;
  let p=document.getElementById('chatPanel');
  if(p.style.display==='none')toggleChat();else inp.focus()}
+let cart={};
+function cartCount(){return Object.values(cart).reduce((a,b)=>a+b,0)}
+function cartTotal(){let t=0;for(let id in cart){let it=(menuItems||[]).find(x=>x.id==id);if(it)t+=it.price_idr*cart[id]}return t}
+function updateCartBadge(){let n=cartCount(),b=document.getElementById('cartBadge');
+ b.style.display=n>0?'':'none';b.textContent=n}
+function addToCart(id,ev){if(ev)ev.stopPropagation();
+ let it=(menuItems||[]).find(x=>x.id===id);
+ if(!it||it.stock<=0)return;
+ cart[id]=Math.min((cart[id]||0)+1,it.stock);
+ updateCartBadge();
+ show('Sistem',it.name+' → '+T().addCart+' ('+cart[id]+'x)')}
+function changeQty(id,d){let it=(menuItems||[]).find(x=>x.id==id);if(!it)return;
+ let q=(cart[id]||0)+d;
+ if(q<=0)delete cart[id];else cart[id]=Math.min(q,it.stock);
+ updateCartBadge();renderCart()}
+function removeFromCart(id){delete cart[id];updateCartBadge();renderCart()}
+function openCart(){renderCart();document.getElementById('cartModal').style.display='flex'}
+function closeCart(){document.getElementById('cartModal').style.display='none'}
+function renderCart(){let box=document.getElementById('cartModalBody');
+ let ids=Object.keys(cart);
+ let html='<h2 style="margin:0 0 12px;color:#2b1a08">'+esc(T().cartTitle)+'</h2>';
+ if(!ids.length){html+='<p class="muted">'+esc(T().cartEmpty)+'</p>'}
+ else{html+='<div>';
+  for(let id of ids){let it=(menuItems||[]).find(x=>x.id==id);if(!it)continue;
+   html+='<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #eee">'+
+    '<div style="flex:1"><b>'+esc(it.name)+'</b><br><span class="muted">Rp'+it.price_idr.toLocaleString('id-ID')+'</span></div>'+
+    '<button class="w3-button w3-white w3-border w3-round w3-small" onclick="changeQty('+id+',-1)">−</button>'+
+    '<b>'+cart[id]+'</b>'+
+    '<button class="w3-button w3-white w3-border w3-round w3-small" onclick="changeQty('+id+',1)">+</button>'+
+    '<button class="w3-button w3-white w3-border w3-round w3-small" onclick="removeFromCart('+id+')">🗑️</button></div>'}
+  html+='</div><div style="display:flex;justify-content:space-between;margin:12px 0;font-size:18px"><b>'+esc(T().cartTotal)+'</b><b>Rp'+cartTotal().toLocaleString('id-ID')+'</b></div>'+
+   '<button class="w3-button w3-black w3-round w3-large" style="width:100%" onclick="checkout()">'+esc(T().checkout)+'</button>'}
+ box.innerHTML=html}
+async function checkout(){let ids=Object.keys(cart);
+ if(!ids.length)return;
+ let lines=ids.map(id=>{let it=(menuItems||[]).find(x=>x.id==id);return cart[id]+'x '+it.name});
+ let msg='Saya mau checkout: '+lines.join(', ');
+ cart={};updateCartBadge();closeCart();
+ let inp=document.getElementById('msg');inp.value=msg;
+ let p=document.getElementById('chatPanel');
+ if(p.style.display==='none')toggleChat();
+ send()}
+function openTableModal(){let box=document.getElementById('tableModalBody');
+ box.innerHTML='<h2 style="margin:0 0 8px;color:#2b1a08">'+esc(T().tableModalTitle)+'</h2>'+
+  '<p class="muted">'+esc(T().tableModalDesc)+'</p>'+
+  '<input id="tableInput" class="w3-input w3-border w3-round" placeholder="'+esc(T().tablePh)+'" style="text-transform:uppercase">'+
+  '<button class="w3-button w3-black w3-round w3-margin-top" style="width:100%" onclick="saveTableNo()">'+esc(T().tableSave)+'</button>'+
+  '<p class="muted" style="margin:14px 0 6px">'+esc(T().noTable)+'</p>'+
+  '<button class="w3-button w3-white w3-border w3-round" style="width:100%;margin-bottom:6px" onclick="setTakeaway()">'+esc(T().takeawayBtn)+'</button>'+
+  '<button class="w3-button w3-white w3-border w3-round" style="width:100%" onclick="openWaitlistForm()">'+esc(T().waitlistBtn)+'</button>';
+ document.getElementById('tableModal').style.display='flex';
+ setTimeout(()=>{let i=document.getElementById('tableInput');if(i)i.focus()},100)}
+function closeTableModal(){document.getElementById('tableModal').style.display='none'}
+async function saveTableNo(){let v=document.getElementById('tableInput').value.trim().toUpperCase();
+ if(!v)return;
+ if(!lastOrder){tableNo=v;closeTableModal();return}
+ let d=await api('/api/orders/'+lastOrder+'/set_table',{table_no:v});
+ if(d.ok){tableNo=v;closeTableModal();show('Sistem','✅ Meja '+esc(v)+' — makanan akan diantar ke meja ini.')}
+ else show('Sistem','Gagal simpan meja: '+esc(d.error||''))}
+async function setTakeaway(){if(!lastOrder){closeTableModal();return}
+ let d=await api('/api/orders/'+lastOrder+'/set_type',{order_type:'takeaway'});
+ closeTableModal();
+ if(d.ok)show('Sistem','✅ '+esc(T().takeawaySet));
+ else show('Sistem','Gagal: '+esc(d.error||''))}
+function openWaitlistForm(){let box=document.getElementById('tableModalBody');
+ box.innerHTML='<h2 style="margin:0 0 8px;color:#2b1a08">'+esc(T().waitlistBtn)+'</h2>'+
+  '<p class="muted">Staf akan memanggil nama kamu saat meja kosong.</p>'+
+  '<input id="wlName" class="w3-input w3-border w3-round" placeholder="'+esc(T().waitlistPh)+'">'+
+  '<input id="wlParty" type="number" min="1" value="2" class="w3-input w3-border w3-round w3-margin-top" placeholder="'+esc(T().partyPh)+'">'+
+  '<button class="w3-button w3-black w3-round w3-margin-top" style="width:100%" onclick="joinWaitlist()">'+esc(T().waitlistJoin)+'</button>'}
+async function joinWaitlist(){let n=document.getElementById('wlName').value.trim();
+ let p=parseInt(document.getElementById('wlParty').value)||1;
+ if(!n){show('Sistem','Isi nama dulu ya.');return}
+ let d=await api('/api/waitlist/join',{name:n,party_size:p});
+ closeTableModal();
+ if(d.ok)show('Sistem','✅ '+esc(n)+' terdaftar di antrean! Nomor antrean kamu: #'+d.queue_number+'. Tunggu panggilan staf ya.');
+ else show('Sistem','Gagal daftar: '+esc(d.error||''))}
 async function toggleMenu(){menuOpen=!menuOpen;updateMenuBtn();loadMenu()}
 </script></body></html>"""
 
@@ -545,6 +640,8 @@ STAFF_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 ACC pesanan tamu, lalu kirim tiket ke dapur. Memperbarui otomatis.</p>
 <p><a class="w3-button w3-white w3-border w3-round w3-small" href="/koordinator">📋 Koordinator lapangan</a> <a class="w3-button w3-white w3-border w3-round w3-small" href="/kitchen">🔥 Dapur</a> <a class="w3-button w3-white w3-border w3-round w3-small" href="/owner">👑 Owner</a></p>
 <div id="list"></div>
+<h2>📋 Waiting list (antrean meja)</h2>
+<div id="waitlist"></div>
 <h2>📣 Keluhan tamu</h2>
 <div id="complaints"></div>
 <h2>🗂️ Kelola menu</h2>
@@ -561,8 +658,8 @@ async function api(path,body){let r=await fetch(path,{method:'POST',
   return r.json()}
 async function refresh(){let d=await fetch('/api/orders').then(r=>r.json());
   let html='';
-  for(let o of d.orders){html+='<div class="card"><b>Order #'+o.id+' — Meja '+
-    esc(o.table_no)+'</b> <span class="muted">'+esc(o.status)+
+  for(let o of d.orders){html+='<div class="card"><b>Order #'+o.id+' — '+
+    (o.order_type==='takeaway'?'🥡 Takeaway':'Meja '+esc(o.table_no))+'</b> <span class="muted">'+esc(o.status)+
     ' • '+esc(o.language)+'</span>';
     if(o.allergy_notes||o.dietary_notes){html+='<div class="warn">⚠️ '+
       esc(o.allergy_notes||'')+' '+esc(o.dietary_notes||'')+'</div>'}
@@ -609,10 +706,20 @@ async function menuStockDelta(id,delta){await api('/api/menu/'+id+'/stock',
 async function menuPrice(id){let v=parseInt(
   document.getElementById('price-'+id).value,10);
   await api('/api/menu/'+id+'/price',{price_idr:v});refreshMenu()}
-refresh();refreshComplaints();refreshMenu();
+async function refreshWaitlist(){let d=await fetch('/api/waitlist').then(r=>r.json());
+ let html='';
+ for(let w of (d.entries||[])){html+='<div class="card"><b>#'+w.id+' '+esc(w.name)+'</b> <span class="muted">'+w.party_size+' orang • '+esc(w.status)+'</span>'+
+  (w.phone?' <span class="muted">'+esc(w.phone)+'</span>':'')+
+  '<div style="margin-top:6px">'+
+  (w.status==='waiting'?'<button class="w3-button w3-black w3-round w3-small" onclick="wlStatus('+w.id+',\'called\')">📢 Panggil</button>':'')+
+  (w.status==='called'?'<button class="w3-button w3-black w3-round w3-small" onclick="wlStatus('+w.id+',\'seated\')">🪑 Duduki</button>':'')+
+  '<button class="w3-button w3-white w3-border w3-round w3-small" onclick="wlStatus('+w.id+',\'cancelled\')">❌ Batal</button></div></div>'}
+ document.getElementById('waitlist').innerHTML=html||'<p class="muted">Tidak ada antrean.</p>'}
+async function wlStatus(id,st){await api('/api/waitlist/'+id+'/status',{status:st});refreshWaitlist()}
+refresh();refreshComplaints();refreshMenu();refreshWaitlist();
 // Menu TIDAK ikut interval 3 detik: input harga yang sedang diketik
 // staf akan terhapus kalau daftarnya di-render ulang terus.
-setInterval(()=>{refresh();refreshComplaints()},3000);
+setInterval(()=>{refresh();refreshComplaints();refreshWaitlist()},3000);
 </script></body></html>"""
 
 KITCHEN_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
@@ -742,6 +849,15 @@ def _conn(db_path):
     return conn
 
 
+def _col(row, key, default=None):
+    """Safe column access for rows from DBs migrated at different times."""
+    try:
+        v = row[key]
+    except (KeyError, IndexError):
+        return default
+    return default if v is None else v
+
+
 def list_orders(db_path):
     conn = _conn(db_path)
     try:
@@ -760,6 +876,7 @@ def list_orders(db_path):
                 "language": o["language"], "status": o["status"],
                 "allergy_notes": o["allergy_notes"],
                 "dietary_notes": o["dietary_notes"],
+                "order_type": _col(o, "order_type", "dine_in"),
                 "total_idr": total,
                 "items": [{"name": i["name"], "qty": i["qty"],
                            "custom_note": i["custom_note"],
@@ -791,6 +908,7 @@ def get_order_detail(db_path, order_id):
             "language": o["language"], "status": o["status"],
             "allergy_notes": o["allergy_notes"],
             "dietary_notes": o["dietary_notes"],
+            "order_type": _col(o, "order_type", "dine_in"),
             "ticket_status": ticket["status"] if ticket else None,
             "total_idr": sum(i["qty"] * i["price_idr"] for i in items),
             "items": [{"name": i["name"], "qty": i["qty"],
@@ -914,6 +1032,8 @@ class Handler(BaseHTTPRequestHandler):
                     db_path=self.db_path)})
             elif path == "/api/orders":
                 self._send_json(200, {"orders": list_orders(self.db_path)})
+            elif path == "/api/waitlist":
+                self._send_json(200, tools.list_waiting_list(self.db_path))
             elif len(parts) == 3 and parts[0] == "api" \
                     and parts[1] == "orders":
                 try:
@@ -966,7 +1086,8 @@ class Handler(BaseHTTPRequestHandler):
                     body["table_no"], body["items"], body["language"],
                     db_path=self.db_path,
                     allergy_notes=body.get("allergy_notes", ""),
-                    dietary_notes=body.get("dietary_notes", ""))
+                    dietary_notes=body.get("dietary_notes", ""),
+                    order_type=body.get("order_type", "dine_in"))
                 self._send_json(200, {"ok": True, **result})
             elif len(parts) == 4 and parts[0] == "api" \
                     and parts[1] == "orders":
@@ -981,10 +1102,32 @@ class Handler(BaseHTTPRequestHandler):
                                          db_path=self.db_path)
                 elif action == "ticket":
                     r = tools.send_kitchen_ticket(oid, db_path=self.db_path)
+                elif action == "set_table":
+                    r = tools.set_order_table(oid, body.get("table_no", ""),
+                                              db_path=self.db_path)
+                elif action == "set_type":
+                    r = tools.set_order_type(oid, body.get("order_type", ""),
+                                             db_path=self.db_path)
                 else:
                     self._send_json(404, {"ok": False,
                                           "error": "aksi tak dikenal"})
                     return
+                self._send_json(200, {"ok": True, **r})
+            elif path == "/api/waitlist/join":
+                r = tools.join_waiting_list(
+                    body.get("name", ""), body.get("party_size", 1),
+                    phone=body.get("phone", ""), db_path=self.db_path)
+                self._send_json(200, {"ok": True, **r})
+            elif len(parts) == 4 and parts[0] == "api" \
+                    and parts[1] == "waitlist" and parts[3] == "status":
+                try:
+                    wid = int(parts[2])
+                except ValueError:
+                    self._send_json(400, {"ok": False,
+                                          "error": "id antrean harus angka"})
+                    return
+                r = tools.set_waiting_status(wid, body.get("status", ""),
+                                             db_path=self.db_path)
                 self._send_json(200, {"ok": True, **r})
             elif len(parts) == 4 and parts[0] == "api" \
                     and parts[1] == "tickets" and parts[3] == "status":

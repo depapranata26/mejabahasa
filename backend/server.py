@@ -66,11 +66,16 @@ def _translated_menu(lang, db_path):
                        "description": it.get("description", "")}
             for it in items
         }
+        did_translate = True
     else:
         try:
             translated = agent.translate_menu(items, lang)
-        except Exception:
+            did_translate = True
+        except Exception as exc:
+            print(f"[menu_i18n] translate gagal ({lang}): {exc}",
+                  flush=True)
             translated = {}
+            did_translate = False
     out = []
     for it in items:
         t = translated.get(it["id"], {})
@@ -84,7 +89,7 @@ def _translated_menu(lang, db_path):
             ensure_ascii=False), encoding="utf-8")
     except OSError:
         pass
-    return out
+    return out, did_translate
 
 CSS = """
 /* Tema TipTop: coklat tua + emas + krem (di atas W3.CSS). */
@@ -186,30 +191,41 @@ otomatis.</p>
 <div class="w3-margin-top"><button id="menuBtn" class="w3-button w3-white w3-border w3-round w3-small" onclick="toggleMenu()">📖 Lihat menu</button></div>
 <div id="menuList" style="text-align:left"></div>
 </div>
-<div id="chatSection" style="display:none">
-<div id="log" class="w3-margin-top"></div>
-<div id="actions"></div>
-<div id="statusBox"></div>
+<button id="chatFab" onclick="toggleChat()" style="display:none;position:fixed;bottom:24px;right:24px;width:62px;height:62px;border-radius:50%;background:linear-gradient(180deg,#f0d189,#c9a24b);border:2px solid #8a6d2b;font-size:28px;z-index:1000;box-shadow:0 4px 14px rgba(0,0,0,.35);cursor:pointer" title="Chat">💬</button>
+<div id="chatPanel" style="display:none;position:fixed;bottom:100px;right:16px;width:min(380px,calc(100vw - 32px));height:min(540px,72vh);background:#faf3df;border:2px solid #c9a24b;border-radius:14px;z-index:1000;box-shadow:0 8px 28px rgba(0,0,0,.35);overflow:hidden">
+<div style="background:linear-gradient(180deg,#2b1a08,#180d02);color:#f0d189;padding:10px 14px;font-weight:bold">🍽️ MejaBahasa<span style="float:right;cursor:pointer;padding:0 4px" onclick="toggleChat()">✕</span></div>
+<div style="display:flex;flex-direction:column;height:calc(100% - 45px)">
+<div id="log" style="flex:1;overflow-y:auto;padding:10px"></div>
+<div id="actions" style="padding:0 10px"></div>
+<div id="statusBox" style="padding:0 10px"></div>
+<div style="padding:10px;border-top:1px solid #e9dfc9">
 <input id="msg" class="w3-input w3-border" data-i18n-ph="msgPh" placeholder="Tulis pesananmu di sini…">
-<button id="sendBtn" class="w3-button w3-black w3-round w3-margin-top" onclick="send()" data-i18n="send">Kirim</button>
-<button id="voiceBtn" class="w3-button w3-white w3-border w3-round w3-margin-top" onclick="startVoice()" style="display:none" title="Input suara">🎤</button>
-<button id="speakBtn" class="w3-button w3-white w3-border w3-round w3-margin-top" onclick="toggleSpeak()" style="display:none" title="Bacakan balasan">🔊</button>
-<div class="w3-margin-top">
-<input id="complaintMsg" class="w3-input w3-border" data-i18n-ph="complaintPh" placeholder="Ada keluhan? Tulis di sini…">
-<button class="w3-button w3-white w3-border w3-round w3-margin-top" onclick="sendComplaint()" data-i18n="complaintBtn">Laporkan keluhan</button>
-<div id="complaintStatus" class="muted"></div></div>
+<div style="display:flex;gap:6px;margin-top:8px">
+<button id="sendBtn" class="w3-button w3-black w3-round" style="flex:1" onclick="send()" data-i18n="send">Kirim</button>
+<button id="voiceBtn" class="w3-button w3-white w3-border w3-round" onclick="startVoice()" style="display:none" title="Input suara">🎤</button>
+<button id="speakBtn" class="w3-button w3-white w3-border w3-round" onclick="toggleSpeak()" style="display:none" title="Bacakan balasan">🔊</button>
+</div>
+<details style="margin-top:8px"><summary class="muted" style="cursor:pointer;font-size:13px" data-i18n="complaintBtn">Laporkan keluhan</summary>
+<input id="complaintMsg" class="w3-input w3-border w3-small" style="margin-top:6px" data-i18n-ph="complaintPh" placeholder="Ada keluhan? Tulis di sini…">
+<button class="w3-button w3-white w3-border w3-round w3-small w3-margin-top" onclick="sendComplaint()" data-i18n="complaintBtn">Laporkan keluhan</button>
+<div id="complaintStatus" class="muted"></div></details>
+</div>
+</div>
 </div>
 </div>
 <script>
+function toggleChat(){let p=document.getElementById('chatPanel');
+ let open=p.style.display==='none';
+ p.style.display=open?'block':'none';
+ if(open)document.getElementById('msg').focus()}
 function startOrder(){try{
 document.getElementById('welcome').style.display='none';
 document.getElementById('menuSection').style.display='';
-document.getElementById('chatSection').style.display='';
-document.getElementById('msg').focus();
+document.getElementById('chatFab').style.display='';
 show('MejaBahasa',T().greet);
 menuOpen=true;updateMenuBtn();loadMenu()
 }catch(e){try{document.getElementById('welcome').style.display='none';
-document.getElementById('chatSection').style.display=''}catch(e2){}}}
+document.getElementById('chatFab').style.display=''}catch(e2){}}}
 let history=[];let lastOrder=null;let statusTimer=null;let complaintTimer=null;
 let tableNo=new URLSearchParams(location.search).get('table')||'A12';
 function esc(s){return String(s).replace(/[&<>"']/g,
@@ -474,8 +490,9 @@ function renderMenu(){let box=document.getElementById('menuList');
  box.innerHTML=html||'<p class="muted">Menu kosong.</p>'}
 function pickItem(id){let it=(menuItems||[]).find(x=>x.id===id);
  if(!it||it.stock<=0)return;
- let inp=document.getElementById('msg');inp.value=it.name;inp.focus();
- document.getElementById('chatSection').scrollIntoView()}
+ let inp=document.getElementById('msg');inp.value=it.name;
+ let p=document.getElementById('chatPanel');
+ if(p.style.display==='none')toggleChat();else inp.focus()}
 async function toggleMenu(){menuOpen=!menuOpen;updateMenuBtn();loadMenu()}
 </script></body></html>"""
 
@@ -937,8 +954,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": True, **r})
             elif path == "/api/menu_translated":
                 lang = (body.get("lang") or "en").strip()[:5]
-                items = _translated_menu(lang, self.db_path)
+                items, did_translate = _translated_menu(lang, self.db_path)
                 self._send_json(200, {"ok": True, "lang": lang,
+                                      "translated": did_translate,
                                       "items": items})
             elif path == "/api/translate_ui":
                 from backend import agent

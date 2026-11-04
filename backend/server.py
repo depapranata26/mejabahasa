@@ -79,7 +79,13 @@ GUEST_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 <p class="muted" data-i18n="subtitle">Scan QR meja, lalu pesan
 dengan bahasa kamu sendiri. AI mendeteksi bahasanya
 otomatis.</p>
-<div class="w3-margin-top"><div class="muted" style="margin-bottom:8px" data-i18n="chooseLang">Choose your language / Pilih bahasamu</div><div style="display:flex;gap:8px;justify-content:center"><button id="langEn" class="w3-button w3-black w3-round" style="flex:1;max-width:160px" onclick="setLang('en')">🇬🇧 English</button><button id="langId" class="w3-button w3-white w3-border w3-round" style="flex:1;max-width:160px" onclick="setLang('id')">🇮🇩 Indonesia</button></div></div>
+<div class="w3-margin-top"><div class="muted" style="margin-bottom:8px" data-i18n="chooseLang">Choose your language</div><select id="langSel" class="w3-select w3-border w3-round" style="width:100%;max-width:280px;padding:10px;font-size:16px;background:#fffdf8;color:#2b1a08" onchange="setLang(this.value)">
+<option value="en">🇬🇧 English</option>
+<option value="id">🇮🇩 Bahasa Indonesia</option>
+<option value="zh">🇨🇳 中文</option>
+<option value="ko">🇰🇷 한국어</option>
+<option value="ja">🇯🇵 日本語</option>
+</select></div>
 <div class="w3-margin-top"><button id="menuBtn" class="w3-button w3-white w3-border w3-round w3-small" onclick="toggleMenu()">📖 Lihat menu</button></div>
 <div id="menuList" style="text-align:left"></div>
 <label class="w3-margin-top w3-block" style="text-align:left"><span data-i18n="tableLabel">Nomor meja</span> <input id="table" class="w3-input w3-border" value="A12"></label>
@@ -202,7 +208,25 @@ const I18N={
   greet:'Hello! Welcome to MejaBahasa. What would you like to order? Just type in your own language.',
   tableLabel:'Table number',msgPh:'Type your order here…',send:'Send',
   complaintPh:'Any complaint? Write it here…',complaintBtn:'Report complaint',
-  menuBtn:'📖 Browse menu',typing:'MejaBahasa is typing…',close:'Close'}};
+  menuBtn:'📖 Browse menu',typing:'MejaBahasa is typing…',close:'Close'},
+ zh:{subtitle:'扫描餐桌二维码，用您自己的语言点餐。AI 会自动识别语言。',
+  welcomeTitle:'欢迎光临！',start:'开始点餐 🍽️',chooseLang:'选择您的语言',
+  greet:'您好！欢迎使用 MejaBahasa。您想点什么？用您自己的语言输入即可。',
+  tableLabel:'桌号',msgPh:'在此输入您的订单…',send:'发送',
+  complaintPh:'有投诉？请写在这里…',complaintBtn:'提交投诉',
+  menuBtn:'📖 查看菜单',typing:'MejaBahasa 正在输入…',close:'关闭'},
+ ko:{subtitle:'테이블 QR을 스캔하고 원하는 언어로 주문하세요. AI가 언어를 자동 감지합니다.',
+  welcomeTitle:'환영합니다!',start:'주문 시작 🍽️',chooseLang:'언어 선택',
+  greet:'안녕하세요! MejaBahasa에 오신 것을 환영합니다. 무엇을 주문하시겠어요? 편한 언어로 입력하세요.',
+  tableLabel:'테이블 번호',msgPh:'주문을 입력하세요…',send:'보내기',
+  complaintPh:'불만 사항이 있으세요? 여기에 작성하세요…',complaintBtn:'불만 접수',
+  menuBtn:'📖 메뉴 보기',typing:'MejaBahasa가 입력 중…',close:'닫기'},
+ ja:{subtitle:'テーブルのQRをスキャンして、あなたの言語で注文できます。AIが言語を自動検出します。',
+  welcomeTitle:'ようこそ！',start:'注文を開始 🍽️',chooseLang:'言語を選択',
+  greet:'こんにちは！MejaBahasaへようこそ。ご注文は何にしますか？あなたの言語で入力してください。',
+  tableLabel:'テーブル番号',msgPh:'注文を入力…',send:'送信',
+  complaintPh:'苦情がありますか？こちらに記入…',complaintBtn:'苦情を報告',
+  menuBtn:'📖 メニューを見る',typing:'MejaBahasaが入力中…',close:'閉じる'}};
 let uiLang='en',menuOpen=false,menuItems=null;
 function updateMenuBtn(){document.getElementById('menuBtn').textContent=
   menuOpen?I18N[uiLang].close+' ✕':I18N[uiLang].menuBtn}
@@ -211,9 +235,9 @@ function setLang(l){uiLang=l;let t=I18N[l];
    if(t[k])el.textContent=t[k]});
  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{let k=el.getAttribute('data-i18n-ph');
    if(t[k])el.placeholder=t[k]});
- document.getElementById('langId').className='w3-button w3-round w3-small '+(l==='id'?'w3-black':'w3-white w3-border');
- document.getElementById('langEn').className='w3-button w3-round w3-small '+(l==='en'?'w3-black':'w3-white w3-border');
+ let sel=document.getElementById('langSel');if(sel)sel.value=l;
  updateMenuBtn()}
+const SPOKEN={id:'id-ID',en:'en-US',zh:'zh-CN',ko:'ko-KR',ja:'ja-JP'};
 setLang('en');
 // --- Input suara (Web Speech API), disembunyikan kalau tak didukung ---
 let speakReply=false;
@@ -221,7 +245,7 @@ let speakReply=false;
  if(SR)document.getElementById('voiceBtn').style.display='';
  if('speechSynthesis' in window)document.getElementById('speakBtn').style.display='';})();
 function startVoice(){let SR=window.SpeechRecognition||window.webkitSpeechRecognition;
- if(!SR)return;let r=new SR();r.lang=uiLang==='id'?'id-ID':'en-US';
+ if(!SR)return;let r=new SR();r.lang=(SPOKEN[uiLang]||'en-US');
  let btn=document.getElementById('voiceBtn');btn.disabled=true;btn.textContent='🎙️…';
  r.onresult=e=>{document.getElementById('msg').value=e.results[0][0].transcript;send()};
  r.onend=()=>{btn.disabled=false;btn.textContent='🎤'};
@@ -230,7 +254,7 @@ function startVoice(){let SR=window.SpeechRecognition||window.webkitSpeechRecogn
 function toggleSpeak(){speakReply=!speakReply;
  document.getElementById('speakBtn').className='w3-button w3-round w3-margin-top w3-small '+(speakReply?'w3-black':'w3-white w3-border')}
 function speak(text){if(!speakReply||!('speechSynthesis' in window))return;
- try{let u=new SpeechSynthesisUtterance(text);u.lang=uiLang==='id'?'id-ID':'en-US';
+ try{let u=new SpeechSynthesisUtterance(text);u.lang=(SPOKEN[uiLang]||'en-US');
   window.speechSynthesis.cancel();window.speechSynthesis.speak(u)}catch(err){}}
 // --- Browse menu tanpa chat ---
 async function toggleMenu(){menuOpen=!menuOpen;updateMenuBtn();

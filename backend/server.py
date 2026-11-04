@@ -147,7 +147,7 @@ input.w3-input::placeholder,textarea.w3-input::placeholder{color:#a89a83}
 
 GUEST_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MejaBahasa — Pesan dari Meja</title><link rel="stylesheet" href="/static/w3.css"><style>""" + CSS + """</style></head>
+<title>MejaBahasa — Pesan dari Meja</title><link rel="stylesheet" href="/static/w3.css"><script src="/static/jsqr.min.js"></script><style>""" + CSS + """</style></head>
 <body>
 <header class="w3-container w3-dark-grey w3-padding"><h1>🍽️ MejaBahasa</h1></header>
 <div class="w3-content w3-padding" style="max-width:680px">
@@ -349,7 +349,12 @@ const I18N={
   tableModalTitle:'📷 Scan QR Meja',tableModalDesc:'Scan QR di meja kamu, lalu masukkan nomor mejanya di bawah agar makanan diantar ke meja yang benar.',
   tablePh:'Nomor meja (mis. B07)',tableSave:'Simpan nomor meja',noTable:'Belum dapat meja?',
   takeawayBtn:'🥡 Takeaway (bawa pulang)',waitlistBtn:'📋 Daftar waiting list',takeawaySet:'Mode takeaway aktif — makanan dibungkus untuk dibawa pulang.',
-  waitlistPh:'Nama kamu',partyPh:'Jumlah orang',waitlistJoin:'Daftar antrean'},
+  waitlistPh:'Nama kamu',partyPh:'Jumlah orang',waitlistJoin:'Daftar antrean',
+  scanQr:'📷 Scan QR Meja',qrHint:'Arahkan kamera ke QR yang ada di meja',qrStop:'Berhenti scan',
+  qrOk:'QR terbaca! Meja',qrFail:'QR tidak terbaca — coba lagi atau isi nomor meja manual.',
+  qrNoCam:'Kamera tidak bisa diakses — isi nomor meja manual ya.',
+  freeTables:'Meja kosong saat ini',noFreeTables:'Semua meja terisi saat ini.',
+  orManual:'atau isi manual'},
  en:{subtitle:'Scan the table QR, then order in your own language. The AI detects it automatically.',
   welcomeTitle:'Welcome!',start:'Start Ordering 🍽️',chooseLang:'Choose your language',
   greet:'Hello! Welcome to MejaBahasa. What would you like to order? Just type in your own language.',
@@ -360,7 +365,12 @@ const I18N={
   tableModalTitle:'📷 Scan Table QR',tableModalDesc:'Scan the QR on your table, then enter the table number below so food is delivered to the right table.',
   tablePh:'Table number (e.g. B07)',tableSave:'Save table number',noTable:'No table yet?',
   takeawayBtn:'🥡 Takeaway',waitlistBtn:'📋 Join waiting list',takeawaySet:'Takeaway mode on — food will be packed to go.',
-  waitlistPh:'Your name',partyPh:'Party size',waitlistJoin:'Join queue'},
+  waitlistPh:'Your name',partyPh:'Party size',waitlistJoin:'Join queue',
+  scanQr:'📷 Scan Table QR',qrHint:'Point your camera at the QR on the table',qrStop:'Stop scanning',
+  qrOk:'QR scanned! Table',qrFail:'QR not readable — try again or enter the table number manually.',
+  qrNoCam:'Camera unavailable — please enter the table number manually.',
+  freeTables:'Free tables right now',noFreeTables:'All tables are occupied right now.',
+  orManual:'or enter manually'},
  zh:{subtitle:'扫描餐桌二维码，用您自己的语言点餐。AI 会自动识别语言。',
   welcomeTitle:'欢迎光临！',start:'开始点餐 🍽️',chooseLang:'选择您的语言',
   greet:'您好！欢迎使用 MejaBahasa。您想点什么？用您自己的语言输入即可。',
@@ -592,22 +602,64 @@ async function checkout(){let ids=Object.keys(cart);
  let p=document.getElementById('chatPanel');
  if(p.style.display==='none')toggleChat();
  send()}
+let qrStream=null,qrScanning=false;
 function openTableModal(){let box=document.getElementById('tableModalBody');
  box.innerHTML='<h2 style="margin:0 0 8px;color:#2b1a08">'+esc(T().tableModalTitle)+'</h2>'+
   '<p class="muted">'+esc(T().tableModalDesc)+'</p>'+
-  '<input id="tableInput" class="w3-input w3-border w3-round" placeholder="'+esc(T().tablePh)+'" style="text-transform:uppercase">'+
-  '<button class="w3-button w3-black w3-round w3-margin-top" style="width:100%" onclick="saveTableNo()">'+esc(T().tableSave)+'</button>'+
+  '<button class="w3-button w3-black w3-round w3-large" style="width:100%" onclick="startQrScan()">'+esc(T().scanQr)+'</button>'+
+  '<div id="qrView" style="display:none;margin-top:8px">'+
+  '<video id="qrVideo" style="width:100%;border-radius:12px;background:#000" playsinline></video>'+
+  '<canvas id="qrCanvas" style="display:none"></canvas>'+
+  '<p class="muted" style="margin:6px 0">'+esc(T().qrHint)+'</p>'+
+  '<button class="w3-button w3-white w3-border w3-round w3-small" style="width:100%" onclick="stopQrScan()">'+esc(T().qrStop)+'</button></div>'+
+  '<p class="muted" style="margin:12px 0 6px">'+esc(T().orManual)+':</p>'+
+  '<div style="display:flex;gap:6px"><input id="tableInput" class="w3-input w3-border w3-round" placeholder="'+esc(T().tablePh)+'" style="text-transform:uppercase;flex:1">'+
+  '<button class="w3-button w3-black w3-round" onclick="saveTableNo()">OK</button></div>'+
+  '<p class="muted" id="freeTables" style="margin:10px 0"></p>'+
   '<p class="muted" style="margin:14px 0 6px">'+esc(T().noTable)+'</p>'+
   '<button class="w3-button w3-white w3-border w3-round" style="width:100%;margin-bottom:6px" onclick="setTakeaway()">'+esc(T().takeawayBtn)+'</button>'+
   '<button class="w3-button w3-white w3-border w3-round" style="width:100%" onclick="openWaitlistForm()">'+esc(T().waitlistBtn)+'</button>';
  document.getElementById('tableModal').style.display='flex';
- setTimeout(()=>{let i=document.getElementById('tableInput');if(i)i.focus()},100)}
-function closeTableModal(){document.getElementById('tableModal').style.display='none'}
-async function saveTableNo(){let v=document.getElementById('tableInput').value.trim().toUpperCase();
+ loadFreeTables()}
+function closeTableModal(){stopQrScan();document.getElementById('tableModal').style.display='none'}
+async function loadFreeTables(){try{
+  let d=await fetch('/api/tables').then(r=>r.json());
+  let free=(d.tables||[]).filter(t=>!t.occupied).map(t=>t.table_no);
+  let el=document.getElementById('freeTables');
+  if(el)el.innerHTML='<b>'+esc(T().freeTables)+':</b> '+(free.length?free.map(esc).join(', '):esc(T().noFreeTables));
+ }catch(e){}}
+async function startQrScan(){
+ if(typeof jsQR==='undefined'){show('Sistem',T().qrNoCam);return}
+ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){show('Sistem',T().qrNoCam);return}
+ try{qrStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}})}
+ catch(e){show('Sistem',T().qrNoCam);return}
+ let v=document.getElementById('qrVideo');
+ v.srcObject=qrStream;v.setAttribute('playsinline',true);
+ try{await v.play()}catch(e){}
+ document.getElementById('qrView').style.display='';
+ qrScanning=true;qrTick()}
+function stopQrScan(){qrScanning=false;
+ if(qrStream){try{qrStream.getTracks().forEach(t=>t.stop())}catch(e){}qrStream=null}
+ let vw=document.getElementById('qrView');if(vw)vw.style.display='none'}
+function qrTick(){if(!qrScanning)return;
+ let v=document.getElementById('qrVideo'),c=document.getElementById('qrCanvas');
+ if(v&&c&&v.readyState===v.HAVE_ENOUGH_DATA&&v.videoWidth>0){
+  c.width=v.videoWidth;c.height=v.videoHeight;
+  let ctx=c.getContext('2d');ctx.drawImage(v,0,0,c.width,c.height);
+  try{let code=jsQR(ctx.getImageData(0,0,c.width,c.height).data,c.width,c.height);
+   if(code&&code.data){onQrData(code.data);return}}catch(e){}}
+ requestAnimationFrame(qrTick)}
+function onQrData(data){stopQrScan();
+ let tno=null,m=String(data).match(/[?&]table=([A-Za-z0-9_-]+)/);
+ if(m)tno=m[1];
+ else if(/^[A-Za-z0-9_-]{1,10}$/.test(String(data).trim()))tno=String(data).trim();
+ if(tno)saveTableNo(tno);
+ else show('Sistem',T().qrFail)}
+async function saveTableNo(v){v=(v||(document.getElementById('tableInput')||{}).value||'').trim().toUpperCase();
  if(!v)return;
  if(!lastOrder){tableNo=v;closeTableModal();return}
  let d=await api('/api/orders/'+lastOrder+'/set_table',{table_no:v});
- if(d.ok){tableNo=v;closeTableModal();show('Sistem','✅ Meja '+esc(v)+' — makanan akan diantar ke meja ini.')}
+ if(d.ok){tableNo=v;closeTableModal();show('Sistem','✅ '+esc(T().qrOk)+' '+esc(v)+' — makanan akan diantar ke meja ini.')}
  else show('Sistem','Gagal simpan meja: '+esc(d.error||''))}
 async function setTakeaway(){if(!lastOrder){closeTableModal();return}
  let d=await api('/api/orders/'+lastOrder+'/set_type',{order_type:'takeaway'});
@@ -617,9 +669,14 @@ async function setTakeaway(){if(!lastOrder){closeTableModal();return}
 function openWaitlistForm(){let box=document.getElementById('tableModalBody');
  box.innerHTML='<h2 style="margin:0 0 8px;color:#2b1a08">'+esc(T().waitlistBtn)+'</h2>'+
   '<p class="muted">Staf akan memanggil nama kamu saat meja kosong.</p>'+
+  '<p class="muted" id="freeTablesWl" style="margin:8px 0"></p>'+
   '<input id="wlName" class="w3-input w3-border w3-round" placeholder="'+esc(T().waitlistPh)+'">'+
   '<input id="wlParty" type="number" min="1" value="2" class="w3-input w3-border w3-round w3-margin-top" placeholder="'+esc(T().partyPh)+'">'+
-  '<button class="w3-button w3-black w3-round w3-margin-top" style="width:100%" onclick="joinWaitlist()">'+esc(T().waitlistJoin)+'</button>'}
+  '<button class="w3-button w3-black w3-round w3-margin-top" style="width:100%" onclick="joinWaitlist()">'+esc(T().waitlistJoin)+'</button>';
+ (async()=>{try{let d=await fetch('/api/tables').then(r=>r.json());
+  let free=(d.tables||[]).filter(t=>!t.occupied).map(t=>t.table_no);
+  let el=document.getElementById('freeTablesWl');
+  if(el)el.innerHTML='<b>'+esc(T().freeTables)+':</b> '+(free.length?free.map(esc).join(', '):esc(T().noFreeTables))}catch(e){}})()}
 async function joinWaitlist(){let n=document.getElementById('wlName').value.trim();
  let p=parseInt(document.getElementById('wlParty').value)||1;
  if(!n){show('Sistem','Isi nama dulu ya.');return}
@@ -640,6 +697,9 @@ STAFF_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
 ACC pesanan tamu, lalu kirim tiket ke dapur. Memperbarui otomatis.</p>
 <p><a class="w3-button w3-white w3-border w3-round w3-small" href="/koordinator">📋 Koordinator lapangan</a> <a class="w3-button w3-white w3-border w3-round w3-small" href="/kitchen">🔥 Dapur</a> <a class="w3-button w3-white w3-border w3-round w3-small" href="/owner">👑 Owner</a></p>
 <div id="list"></div>
+<h2>🪑 Status meja</h2>
+<p class="muted">Hijau = kosong, merah = terisi (ada order aktif).</p>
+<div id="tablestatus" style="display:flex;flex-wrap:wrap;gap:8px"></div>
 <h2>📋 Waiting list (antrean meja)</h2>
 <div id="waitlist"></div>
 <h2>📣 Keluhan tamu</h2>
@@ -716,10 +776,17 @@ async function refreshWaitlist(){let d=await fetch('/api/waitlist').then(r=>r.js
   '<button class="w3-button w3-white w3-border w3-round w3-small" onclick="wlStatus('+w.id+',\'cancelled\')">❌ Batal</button></div></div>'}
  document.getElementById('waitlist').innerHTML=html||'<p class="muted">Tidak ada antrean.</p>'}
 async function wlStatus(id,st){await api('/api/waitlist/'+id+'/status',{status:st});refreshWaitlist()}
-refresh();refreshComplaints();refreshMenu();refreshWaitlist();
+async function refreshTables(){try{let d=await fetch('/api/tables').then(r=>r.json());
+ let html='';
+ for(let t of (d.tables||[])){
+  let bg=t.occupied?'#f8d7da;border:2px solid #c00':'#d4edda;border:2px solid #0a0';
+  html+='<div style="background:'+bg+';border-radius:10px;padding:10px 14px;min-width:90px;text-align:center">'+
+   '<b>'+esc(t.table_no)+'</b><br><small>'+(t.occupied?'🔴 Terisi'+(t.order_id?' #'+t.order_id:''):'🟢 Kosong')+'</small></div>'}
+ document.getElementById('tablestatus').innerHTML=html||'<p class="muted">Belum ada data meja.</p>'}catch(e){}}
+refresh();refreshComplaints();refreshMenu();refreshWaitlist();refreshTables();
 // Menu TIDAK ikut interval 3 detik: input harga yang sedang diketik
 // staf akan terhapus kalau daftarnya di-render ulang terus.
-setInterval(()=>{refresh();refreshComplaints();refreshWaitlist()},3000);
+setInterval(()=>{refresh();refreshComplaints();refreshWaitlist();refreshTables()},3000);
 </script></body></html>"""
 
 KITCHEN_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">
@@ -1022,6 +1089,9 @@ class Handler(BaseHTTPRequestHandler):
                          "png": "image/png",
                          "webp": "image/webp"}[fname.rsplit(".", 1)[1]]
                 self._send_static("menu/" + fname, ctype)
+            elif path == "/static/jsqr.min.js":
+                self._send_static("jsqr.min.js",
+                                  "application/javascript")
             elif path == "/api/plan":
                 table = parse_qs(
                     urlsplit(self.path).query).get("table", [None])[0]
@@ -1034,6 +1104,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"orders": list_orders(self.db_path)})
             elif path == "/api/waitlist":
                 self._send_json(200, tools.list_waiting_list(self.db_path))
+            elif path == "/api/tables":
+                self._send_json(200,
+                                tools.get_table_status(self.db_path))
             elif len(parts) == 3 and parts[0] == "api" \
                     and parts[1] == "orders":
                 try:

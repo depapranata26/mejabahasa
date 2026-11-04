@@ -35,25 +35,36 @@ from backend import complaints, coordinator, menu_admin, queue_estimate, report,
 from backend.config import DATABASE_PATH  # noqa: E402
 
 CSS = """
-/* Custom di atas W3.CSS: kartu, bubble chat, dan panel peringatan. */
-body{background:#f1f1f1}
-.card{background:#fff;border-radius:8px;box-shadow:0 2px 5px rgba(0,0,0,.16);
+/* Tema TipTop: coklat tua + emas + krem (di atas W3.CSS). */
+body{background:#faf3df;color:#2b1a08}
+header{background:linear-gradient(180deg,#2b1a08,#180d02)!important;
+border-bottom:3px solid #c9a24b}
+header h1{margin:0;color:#f0d189!important;font-weight:800;letter-spacing:.5px}
+.w3-dark-grey{background:linear-gradient(180deg,#2b1a08,#180d02)!important;
+color:#f0d189!important}
+.w3-black{background:linear-gradient(135deg,#f0d189,#c9a24b)!important;
+color:#2b1a08!important;font-weight:700;border:none!important}
+.w3-white{background:#fffdf8!important;color:#2b1a08!important}
+.card{background:#fffdf8;border:1px solid #e9dfc9;border-left:4px solid #c9a24b;
+border-radius:8px;box-shadow:0 2px 5px rgba(43,26,8,.12);
 padding:12px 16px;margin:12px 0}
-.warn{background:#fff3cd;border-left:4px solid #e6c200;padding:8px 12px;
-margin:8px 0;border-radius:4px}
-.muted{color:#666;font-size:13px}
+.warn{background:#fff8e6;border-left:4px solid #c9a24b;padding:8px 12px;
+margin:8px 0;border-radius:4px;color:#2b1a08}
+.muted{color:#a89a83;font-size:13px}
 #log{overflow:hidden;padding-bottom:8px}
 .msg{max-width:85%;margin:8px 0;padding:10px 14px;border-radius:16px;clear:both}
 .msg b{display:block;font-size:12px;margin-bottom:2px;opacity:.75}
-.msg-user{background:#0d47a1;color:#fff;margin-left:auto;
+.msg-user{background:#2b1a08;color:#faf3df;margin-left:auto;
 border-bottom-right-radius:4px}
-.msg-bot{background:#fff;margin-right:auto;
-border-bottom-left-radius:4px;box-shadow:0 2px 4px rgba(0,0,0,.15)}
-.msg-sys{background:#fff3cd;border:1px solid #e6c200;border-radius:8px;
-font-size:13px;max-width:100%}
+.msg-bot{background:#fffdf8;color:#2b1a08;margin-right:auto;
+border-bottom-left-radius:4px;box-shadow:0 2px 4px rgba(43,26,8,.15);
+border:1px solid #e9dfc9}
+.msg-sys{background:#fff8e6;border:1px solid #c9a24b;border-radius:8px;
+font-size:13px;max-width:100%;color:#2b1a08}
 .msg-sys b{display:none}
-input.w3-input,textarea.w3-input{border-radius:6px!important}
-header h1{margin:0}
+input.w3-input,textarea.w3-input{border-radius:6px!important;
+background:#fffdf8!important;border-color:#d9c69a!important;color:#2b1a08!important}
+input.w3-input::placeholder,textarea.w3-input::placeholder{color:#a89a83}
 """
 
 GUEST_HTML = """<!DOCTYPE html><html lang="id"><head><meta charset="utf-8">

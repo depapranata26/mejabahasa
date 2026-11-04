@@ -24,8 +24,19 @@ import sys
 import urllib.error
 import urllib.request
 
-sys.path.insert(0, "/opt/muse/skills/custom-connector-setup/bin")
-from dynamic_credentials import add_surrogate_to_request, read_json_response
+try:
+    sys.path.insert(0, "/opt/muse/skills/custom-connector-setup/bin")
+    from dynamic_credentials import add_surrogate_to_request, read_json_response
+except ImportError:
+    # Non-vault environment (e.g. VPS): pakai BASENTEN_API_KEY langsung.
+    import os
+
+    def add_surrogate_to_request(req, *a, **k):
+        key = os.environ.get("BASENTEN_API_KEY", "")
+        req.add_header("Authorization", f"Bearer {key}")
+
+    def read_json_response(resp):
+        return json.loads(resp.read().decode("utf-8"))
 
 try:
     from backend import tools as tools_mod

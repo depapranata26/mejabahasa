@@ -388,16 +388,22 @@ def check_stock(menu_item_id, qty, db_path=None):
 
 
 def create_order(table_no, items, language, db_path=None,
-                 allergy_notes="", dietary_notes="", now=None):
+                 allergy_notes="", dietary_notes="", now=None,
+                 order_type="dine_in"):
     """Store a DRAFT order. Validates everything before inserting anything.
 
     Stock is checked but NOT deducted here — a draft is not a real order.
     Deduction happens atomically in send_kitchen_ticket. Allergy notes
     are matched against every ordered item's allergens; ANY conflict
     rejects the whole order with the item name and allergen named.
+    order_type is 'dine_in' (default) or 'takeaway'.
     """
     inputs = {"table_no": table_no, "language": language, "items": items,
-              "allergy_notes": allergy_notes, "dietary_notes": dietary_notes}
+              "allergy_notes": allergy_notes, "dietary_notes": dietary_notes,
+              "order_type": order_type}
+    if order_type not in ("dine_in", "takeaway"):
+        _fail(db_path, None, "create_order", inputs,
+              "order_type harus 'dine_in' atau 'takeaway'.")
     if not table_no or not isinstance(table_no, str):
         _fail(db_path, None, "create_order", inputs,
               "Nomor meja wajib diisi (string, mis. 'A12').")
@@ -453,10 +459,10 @@ def create_order(table_no, items, language, db_path=None,
 
         cur = conn.execute(
             "INSERT INTO orders (table_no, language, status,"
-            " allergy_notes, dietary_notes)"
-            " VALUES (?, ?, 'draft', ?, ?)",
+            " allergy_notes, dietary_notes, order_type)"
+            " VALUES (?, ?, 'draft', ?, ?, ?)",
             (table_no, language, allergy_notes or "",
-             dietary_notes or ""),
+             dietary_notes or "", order_type),
         )
         order_id = cur.lastrowid
         conn.executemany(
@@ -468,8 +474,136 @@ def create_order(table_no, items, language, db_path=None,
         conn.commit()
     finally:
         conn.close()
-    result = {"order_id": order_id, "status": "draft", "total_idr": total_idr}
+    result = {"order_id": order_id, "status": "draft",
+              "total_idr": total_idr, "order_type": order_type}
     _log(db_path, order_id, "create_order", "create_order", inputs, result)
+    return result
+
+
+def set_order_table(order_id, table_no, db_path=None):
+    """Set/ubah nomor meja pada DRAFT order (tamu scan QR meja)."""
+    inputs = {"order_id": order_id, "table_no": table_no}
+    if not table_no or not isinstance(table_no, str):
+        _fail(db_path, order_id, "set_order_table", inputs,
+              "Nomor meja wajib diisi (string, mis. 'B07').")
+    conn = _connect(db_path)
+    try:
+        row = _get_order(conn, order_id)
+        try:
+            _require_status(row, "draft", "ubah nomor meja")
+        except ValueError as e:
+            conn.close()
+            _fail(db_path, order_id, "set_order_table", inputs, str(e))
+        conn.execute(
+            "UPDATE orders SET table_no = ?, updated_at = datetime('now')"
+            " WHERE id = ?", (table_no.strip().upper(), order_id))
+        conn.commit()
+    finally:
+        conn.close()
+    result = {"order_id": order_id, "table_no": table_no.strip().upper()}
+    _log(db_path, order_id, "set_order_table", "set_order_table",
+         inputs, result)
+    return result
+
+
+def set_order_type(order_id, order_type, db_path=None):
+    """Set/ubah tipe order DRAFT: 'dine_in' atau 'takeaway'."""
+    inputs = {"order_id": order_id, "order_type": order_type}
+    if order_type not in ("dine_in", "takeaway"):
+        _fail(db_path, order_id, "set_order_type", inputs,
+              "order_type harus 'dine_in' atau 'takeaway'.")
+    conn = _connect(db_path)
+    try:
+        row = _get_order(conn, order_id)
+        try:
+            _require_status(row, "draft", "ubah tipe order")
+        except ValueError as e:
+            conn.close()
+            _fail(db_path, order_id, "set_order_type", inputs, str(e))
+        conn.execute(
+            "UPDATE orders SET order_type = ?, updated_at = datetime('now')"
+            " WHERE id = ?", (order_type, order_id))
+        conn.commit()
+    finally:
+        conn.close()
+    result = {"order_id": order_id, "order_type": order_type}
+    _log(db_path, order_id, "set_order_type", "set_order_type",
+         inputs, result)
+    return result
+
+
+def join_waiting_list(name, party_size, phone="", db_path=None):
+    """Daftarkan tamu ke antrean meja. Kembalikan nomor antrean
+    (posisi di antara yang masih waiting)."""
+    inputs = {"name": name, "party_size": party_size, "phone": phone}
+    if not name or not isinstance(name, str):
+        _fail(db_path, None, "join_waiting_list", inputs,
+              "Nama wajib diisi.")
+    try:
+        party_size = int(party_size)
+    except (TypeError, ValueError):
+        _fail(db_path, None, "join_waiting_list", inputs,
+              "Jumlah orang harus angka.")
+    if party_size <= 0:
+        _fail(db_path, None, "join_waiting_list", inputs,
+              "Jumlah orang harus lebih dari 0.")
+    conn = _connect(db_path)
+    try:
+        cur = conn.execute(
+            "INSERT INTO waiting_list (name, party_size, phone)"
+            " VALUES (?, ?, ?)",
+            (name.strip(), party_size, (phone or "").strip()))
+        entry_id = cur.lastrowid
+        pos = conn.execute(
+            "SELECT COUNT(*) FROM waiting_list"
+            " WHERE status = 'waiting' AND id <= ?",
+            (entry_id,)).fetchone()[0]
+        conn.commit()
+    finally:
+        conn.close()
+    result = {"entry_id": entry_id, "queue_number": pos,
+              "name": name.strip(), "party_size": party_size}
+    _log(db_path, None, "join_waiting_list", "join_waiting_list",
+         inputs, result)
+    return result
+
+
+def list_waiting_list(db_path=None):
+    """Daftar antrean meja untuk staf (waiting + called)."""
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT id, name, party_size, phone, status, created_at"
+            " FROM waiting_list"
+            " WHERE status IN ('waiting', 'called')"
+            " ORDER BY id").fetchall()
+        entries = [dict(r) for r in rows]
+    finally:
+        conn.close()
+    return {"ok": True, "entries": entries}
+
+
+def set_waiting_status(entry_id, status, db_path=None):
+    """Staf ubah status antrean: called / seated / cancelled."""
+    inputs = {"entry_id": entry_id, "status": status}
+    if status not in ("called", "seated", "cancelled"):
+        _fail(db_path, None, "set_waiting_status", inputs,
+              "status harus 'called', 'seated', atau 'cancelled'.")
+    conn = _connect(db_path)
+    try:
+        cur = conn.execute(
+            "UPDATE waiting_list SET status = ? WHERE id = ?",
+            (status, entry_id))
+        if cur.rowcount == 0:
+            conn.close()
+            _fail(db_path, None, "set_waiting_status", inputs,
+                  f"Antrean #{entry_id} tidak ditemukan.")
+        conn.commit()
+    finally:
+        conn.close()
+    result = {"entry_id": entry_id, "status": status}
+    _log(db_path, None, "set_waiting_status", "set_waiting_status",
+         inputs, result)
     return result
 
 

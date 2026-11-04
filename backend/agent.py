@@ -117,7 +117,11 @@ HARD RULES — violating any of these is a failure:
    create_order, so the kitchen ticket carries them prominently.
 10. You do not know the guest's table number (it is set by the system from
     their QR code). Never invent, state, or change a table number in your
-    reply or in any tool argument.
+    reply or in any tool argument. If the guest opened the app without
+    scanning a table QR, the app shows them a "Scan QR Meja" prompt after
+    the draft is created — the UI handles the table number, not you.
+    Just remind them to enter the table number from the QR on their
+    table, or offer takeaway / waiting list (rule 17).
 11. BUDGET: when the guest mentions a budget, call compose_meal (never
     invent a combination or a price) and offer the resulting combination;
     if it returns no combination, say so plainly and ask whether the
@@ -148,6 +152,15 @@ HARD RULES — violating any of these is a failure:
     markers (🍽️ food, 🥤 drinks, 🍰 dessert, ⚠️ warnings). Lists: one
     item per line as "• Name - Rp45.000 (short desc)". Keep every reply
     compact and scannable on a phone screen.
+17. DINE-IN vs TAKEAWAY vs WAITING LIST: after the allergy question
+    (rule 7) and BEFORE create_order, ask the guest in their language:
+    dine-in (makan di tempat) or takeaway (bawa pulang)? Pass their
+    answer as order_type to create_order ('dine_in' default). If the
+    guest says they have no table yet: offer two options — (a) takeaway,
+    or (b) join the waiting list (antrean meja). If they choose the
+    waiting list, ask for their name and party size (phone optional),
+    then call join_waiting_list and tell them their queue number
+    plainly. Never invent a queue number — only quote the tool result.
 
 When you need data, call a tool. When you have everything, reply to the
 guest concisely in their language.
@@ -189,10 +202,15 @@ OPENAI_TOOLS = [
         "type": "function",
         "function": {
             "name": "create_order",
-            "description": "Store a DRAFT order (guest language code, items). A draft is NOT a real order yet. The table number is set by the system from the guest's QR code — do not pass table_no yourself. Before calling this, you MUST have asked the guest about allergies, dietary restrictions, and diet preferences, and you MUST pass their answers here.",
+            "description": "Store a DRAFT order (guest language code, items). A draft is NOT a real order yet. The table number is set by the system from the guest's QR code — do not pass table_no yourself. Before calling this, you MUST have asked the guest about allergies, dietary restrictions, and diet preferences, and you MUST pass their answers here. Also ask dine-in vs takeaway (rule 17) and pass order_type.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "order_type": {
+                        "type": "string",
+                        "enum": ["dine_in", "takeaway"],
+                        "description": "dine_in = makan di tempat (default), takeaway = bawa pulang.",
+                    },
                     "language": {
                         "type": "string",
                         "enum": ["zh", "ko", "ja", "id"],
@@ -294,6 +312,31 @@ OPENAI_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "join_waiting_list",
+            "description": "Register the guest in the table waiting list when they have no table yet and want to wait for one. Returns their queue number. Ask for their name and party size first. Only call when the guest explicitly agrees to join the waiting list.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Guest's name.",
+                    },
+                    "party_size": {
+                        "type": "integer",
+                        "description": "Number of people.",
+                    },
+                    "phone": {
+                        "type": "string",
+                        "description": "Optional phone/WhatsApp number so staff can call them.",
+                    },
+                },
+                "required": ["name", "party_size"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "coordinator_plan",
             "description": "The floor coordinator plan: which staff member cooks, makes, or delivers what, for which table, and each table's target ready time. Computed deterministically from live tickets — never invent assignments or times. Pass table_no to narrow the view to one table (targets stay queue-aware). Call this when staff ask who does what, or when anyone asks when a table's food will be ready.",
             "parameters": {
@@ -323,7 +366,11 @@ _TOOL_DISPATCH = {
         db_path=db,
         allergy_notes=args.get("allergy_notes", ""),
         dietary_notes=args.get("dietary_notes", ""),
+        order_type=args.get("order_type", "dine_in"),
     ),
+    "join_waiting_list": lambda args, db: tools_mod.join_waiting_list(
+        args["name"], args["party_size"],
+        phone=args.get("phone", ""), db_path=db),
     "compose_meal": lambda args, db: tools_mod.compose_meal(
         args["budget_idr"],
         allergy_notes=args.get("allergy_notes", ""),

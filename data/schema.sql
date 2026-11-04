@@ -33,8 +33,22 @@ CREATE TABLE IF NOT EXISTS orders (
             'acc_accepted', 'acc_rejected', 'sent_to_kitchen', 'done')),
     allergy_notes TEXT NOT NULL DEFAULT '',
     dietary_notes TEXT NOT NULL DEFAULT '',
+    order_type TEXT NOT NULL DEFAULT 'dine_in'
+        CHECK (order_type IN ('dine_in', 'takeaway')),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Waiting list (antrean meja): tamu tanpa meja bisa daftar antrean.
+-- Status flow: waiting -> called -> seated | cancelled
+CREATE TABLE IF NOT EXISTS waiting_list (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL DEFAULT '',
+    party_size INTEGER NOT NULL DEFAULT 1 CHECK (party_size > 0),
+    phone TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'waiting'
+        CHECK (status IN ('waiting', 'called', 'seated', 'cancelled')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS order_items (

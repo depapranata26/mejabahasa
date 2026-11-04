@@ -449,6 +449,14 @@ _LANG_NAMES = {
     "ar": "Arabic", "hi": "Hindi", "th": "Thai", "vi": "Vietnamese",
     "es": "Spanish", "fr": "French", "de": "German", "ru": "Russian",
     "pt": "Portuguese", "it": "Italian", "nl": "Dutch", "tr": "Turkish",
+    "bn": "Bengali", "fa": "Persian", "ur": "Urdu", "sw": "Swahili",
+    "ha": "Hausa", "yo": "Yoruba", "ig": "Igbo", "am": "Amharic",
+    "ne": "Nepali", "si": "Sinhala", "km": "Khmer", "lo": "Lao",
+    "my": "Burmese", "ka": "Georgian", "hy": "Armenian", "az": "Azerbaijani",
+    "kk": "Kazakh", "uz": "Uzbek", "uk": "Ukrainian", "pl": "Polish",
+    "cs": "Czech", "hu": "Hungarian", "ro": "Romanian", "el": "Greek",
+    "he": "Hebrew", "da": "Danish", "sv": "Swedish", "no": "Norwegian",
+    "fi": "Finnish",
 }
 
 
@@ -488,3 +496,26 @@ def translate_menu(items, target_lang):
             "description": row.get("description", ""),
         }
     return out
+
+
+def translate_ui(strings, target_lang):
+    """Translate short UI label strings via the model.
+
+    ``strings``: {key: english_text}. Returns {key: translated}.
+    Raises on API failure — the caller decides the fallback.
+    """
+    lang_name = _LANG_NAMES.get(target_lang, target_lang)
+    prompt = (
+        "Translate these short UI labels from English to "
+        f"{lang_name}. Return ONLY a JSON object mapping each key to "
+        "its translation, no other text. Keep each translation short "
+        "(button-label length), natural, and in the script the language "
+        "normally uses.\n\n"
+        + json.dumps(strings, ensure_ascii=False)
+    )
+    content, _ = _call_model(
+        [{"role": "user", "content": prompt}], use_tools=False)
+    m = re.search(r"\{.*\}", content, re.DOTALL)
+    if not m:
+        raise RuntimeError("translate_ui: no JSON object in model reply")
+    return json.loads(m.group(0))

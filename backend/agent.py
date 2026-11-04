@@ -474,19 +474,8 @@ _LANG_NAMES = {
 }
 
 
-def translate_menu(items, target_lang):
-    """Translate menu item names+descriptions via the model.
-
-    ``items``: list of dicts with id/name/description. Returns a dict
-    {id: {"name": ..., "description": ...}}. Raises on API failure —
-    the caller decides the fallback.
-    """
-    lang_name = _LANG_NAMES.get(target_lang, target_lang)
-    src = [
-        {"id": it["id"], "name": it.get("name", ""),
-         "description": it.get("description", "")}
-        for it in items
-    ]
+def _translate_menu_batch(src, lang_name):
+    """Translate satu batch kecil. Kembalikan list of dicts."""
     prompt = (
         "Translate this restaurant menu from Indonesian to "
         f"{lang_name}. Output ONLY a raw JSON array, no markdown, no "
@@ -500,22 +489,39 @@ def translate_menu(items, target_lang):
     )
     content, _ = _call_model(
         [{"role": "user", "content": prompt}], use_tools=False,
-        max_tokens=4096)
+        max_tokens=2048)
     m = re.search(r"\[.*\]", content, re.DOTALL)
     if not m:
-        # coba bersihkan markdown code fence kalau ada
         cleaned = re.sub(r"```(?:json)?", "", content)
         m = re.search(r"\[.*\]", cleaned, re.DOTALL)
     if not m:
-        print(f"[translate_menu] reply tak ter-parse ({target_lang}, "
+        print(f"[translate_menu] reply tak ter-parse ({lang_name}, "
               f"{len(content)} chars): {content[:400]!r}", flush=True)
         raise RuntimeError("translate_menu: no JSON array in model reply")
+    return json.loads(m.group(0))
+
+
+def translate_menu(items, target_lang):
+    """Translate menu item names+descriptions via the model.
+
+    ``items``: list of dicts with id/name/description. Returns a dict
+    {id: {"name": ..., "description": ...}}. Raises on API failure —
+    the caller decides the fallback. Diterjemahkan per batch 4 item
+    agar respon model tidak terpotong.
+    """
+    lang_name = _LANG_NAMES.get(target_lang, target_lang)
+    src = [
+        {"id": it["id"], "name": it.get("name", ""),
+         "description": it.get("description", "")}
+        for it in items
+    ]
     out = {}
-    for row in json.loads(m.group(0)):
-        out[int(row["id"])] = {
-            "name": row.get("name", ""),
-            "description": row.get("description", ""),
-        }
+    for i in range(0, len(src), 4):
+        for row in _translate_menu_batch(src[i:i + 4], lang_name):
+            out[int(row["id"])] = {
+                "name": row.get("name", ""),
+                "description": row.get("description", ""),
+            }
     return out
 
 

@@ -30,6 +30,7 @@ _MIGRATIONS = {
     "orders": [
         ("allergy_notes", "TEXT NOT NULL DEFAULT ''"),
         ("dietary_notes", "TEXT NOT NULL DEFAULT ''"),
+        ("order_type", "TEXT NOT NULL DEFAULT 'dine_in'"),
     ],
     "order_items": [
         ("custom_note", "TEXT NOT NULL DEFAULT ''"),
@@ -47,6 +48,18 @@ def _migrate(conn):
         for col, ddl in columns:
             if col not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+    # Waiting list table (new in cart/checkout update) — create if missing.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS waiting_list ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " name TEXT NOT NULL DEFAULT '',"
+        " party_size INTEGER NOT NULL DEFAULT 1 CHECK (party_size > 0),"
+        " phone TEXT NOT NULL DEFAULT '',"
+        " status TEXT NOT NULL DEFAULT 'waiting'"
+        "  CHECK (status IN ('waiting', 'called', 'seated', 'cancelled')),"
+        " created_at TEXT NOT NULL DEFAULT (datetime('now'))"
+        ")"
+    )
 
 
 def _insert_menu(conn, menu):

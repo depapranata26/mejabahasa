@@ -337,13 +337,13 @@ _CTX = {"table_no": "A12"}
 _JSON_BLOCK = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 
 
-def _call_model(messages, use_tools=True):
+def _call_model(messages, use_tools=True, max_tokens=1024):
     """One chat-completions call. Returns (content, tool_calls list)."""
     payload = {
         "model": MODEL,
         "messages": messages,
         "temperature": 0.2,
-        "max_tokens": 1024,
+        "max_tokens": max_tokens,
     }
     if use_tools:
         payload["tools"] = OPENAI_TOOLS
@@ -489,18 +489,23 @@ def translate_menu(items, target_lang):
     ]
     prompt = (
         "Translate this restaurant menu from Indonesian to "
-        f"{lang_name}. Return ONLY a JSON array, no other text. "
-        "Each element: {\"id\": <same id>, \"name\": \"<translated dish "
-        "name>\", \"description\": \"<translated description>\"}. "
-        "Dish names: translate naturally but keep them recognizable "
-        "(keep well-known dish names close to the original). "
-        "Descriptions: translate fully and appetizingly, one short "
-        "sentence each.\n\n"
+        f"{lang_name}. Output ONLY a raw JSON array, no markdown, no "
+        "explanation, no other text. Each element: {\"id\": <same id>, "
+        "\"name\": \"<translated dish name>\", \"description\": "
+        "\"<translated description>\"}. Dish names: translate naturally "
+        "but keep them recognizable (keep well-known dish names close to "
+        "the original). Descriptions: translate fully and appetizingly, "
+        "one short sentence each.\n\n"
         + json.dumps(src, ensure_ascii=False)
     )
     content, _ = _call_model(
-        [{"role": "user", "content": prompt}], use_tools=False)
+        [{"role": "user", "content": prompt}], use_tools=False,
+        max_tokens=4096)
     m = re.search(r"\[.*\]", content, re.DOTALL)
+    if not m:
+        # coba bersihkan markdown code fence kalau ada
+        cleaned = re.sub(r"```(?:json)?", "", content)
+        m = re.search(r"\[.*\]", cleaned, re.DOTALL)
     if not m:
         raise RuntimeError("translate_menu: no JSON array in model reply")
     out = {}
@@ -528,8 +533,12 @@ def translate_ui(strings, target_lang):
         + json.dumps(strings, ensure_ascii=False)
     )
     content, _ = _call_model(
-        [{"role": "user", "content": prompt}], use_tools=False)
+        [{"role": "user", "content": prompt}], use_tools=False,
+        max_tokens=2048)
     m = re.search(r"\{.*\}", content, re.DOTALL)
+    if not m:
+        cleaned = re.sub(r"```(?:json)?", "", content)
+        m = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if not m:
         raise RuntimeError("translate_ui: no JSON object in model reply")
     return json.loads(m.group(0))

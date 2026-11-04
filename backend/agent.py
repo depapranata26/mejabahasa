@@ -441,3 +441,50 @@ def run_turn(user_message, table_no="A12", history=None, db_path=None,
         return {"reply": content, "tool_calls": executed, "path": path}
     return {"reply": messages[-1].get("content", "") if messages else "",
             "tool_calls": executed, "path": path}
+
+
+_LANG_NAMES = {
+    "en": "English", "id": "Bahasa Indonesia", "ms": "Bahasa Melayu",
+    "zh": "Simplified Chinese", "ko": "Korean", "ja": "Japanese",
+    "ar": "Arabic", "hi": "Hindi", "th": "Thai", "vi": "Vietnamese",
+    "es": "Spanish", "fr": "French", "de": "German", "ru": "Russian",
+    "pt": "Portuguese", "it": "Italian", "nl": "Dutch", "tr": "Turkish",
+}
+
+
+def translate_menu(items, target_lang):
+    """Translate menu item names+descriptions via the model.
+
+    ``items``: list of dicts with id/name/description. Returns a dict
+    {id: {"name": ..., "description": ...}}. Raises on API failure —
+    the caller decides the fallback.
+    """
+    lang_name = _LANG_NAMES.get(target_lang, target_lang)
+    src = [
+        {"id": it["id"], "name": it.get("name", ""),
+         "description": it.get("description", "")}
+        for it in items
+    ]
+    prompt = (
+        "Translate this restaurant menu from Indonesian to "
+        f"{lang_name}. Return ONLY a JSON array, no other text. "
+        "Each element: {\"id\": <same id>, \"name\": \"<translated dish "
+        "name>\", \"description\": \"<translated description>\"}. "
+        "Dish names: translate naturally but keep them recognizable "
+        "(keep well-known dish names close to the original). "
+        "Descriptions: translate fully and appetizingly, one short "
+        "sentence each.\n\n"
+        + json.dumps(src, ensure_ascii=False)
+    )
+    content, _ = _call_model(
+        [{"role": "user", "content": prompt}], use_tools=False)
+    m = re.search(r"\[.*\]", content, re.DOTALL)
+    if not m:
+        raise RuntimeError("translate_menu: no JSON array in model reply")
+    out = {}
+    for row in json.loads(m.group(0)):
+        out[int(row["id"])] = {
+            "name": row.get("name", ""),
+            "description": row.get("description", ""),
+        }
+    return out

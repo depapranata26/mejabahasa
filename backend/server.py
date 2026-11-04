@@ -463,7 +463,7 @@ function renderMenu(){let box=document.getElementById('menuList');
  let html='';
  for(let it of menuItems){
   let img=it.image_url
-   ?'<img src="'+esc(it.image_url)+'" style="width:100%;height:150px;object-fit:cover" loading="lazy" onerror="this.style.display=\'none\'">'
+   ?'<img src="'+esc(it.image_url)+'" style="width:100%;height:150px;object-fit:cover" loading="lazy" onerror="this.remove()">'
    :'<div style="width:100%;height:150px;display:flex;align-items:center;justify-content:center;font-size:52px;background:linear-gradient(180deg,#f0e6cf,#e2d3ac)">🍽️</div>';
   html+='<div class="card" style="padding:0;overflow:hidden;margin-bottom:12px;cursor:pointer" onclick="pickItem('+it.id+')">'+img+
    '<div style="padding:10px 12px"><b>'+esc(it.name)+'</b><br>'+

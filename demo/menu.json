@@ -4,7 +4,9 @@
     {
       "allergens": [
         "telur",
-        "kedelai"
+        "kedelai",
+        "udang",
+        "gandum"
       ],
       "category": "makanan_utama",
       "description": "Nasi goreng dengan ayam, telur, dan kerupuk.",
@@ -17,7 +19,11 @@
         "bawang putih",
         "kecap manis",
         "cabai merah",
-        "kerupuk"
+        "kerupuk udang",
+        "minyak goreng",
+        "garam",
+        "merica",
+        "daun bawang"
       ],
       "is_vegetarian": false,
       "name": "Nasi Goreng Spesial",
@@ -30,7 +36,7 @@
     },
     {
       "allergens": [
-        "gluten/gandum",
+        "gandum",
         "telur",
         "kedelai"
       ],
@@ -45,7 +51,11 @@
         "wortel",
         "bawang merah",
         "bawang putih",
-        "kecap manis"
+        "kecap manis",
+        "cabai",
+        "minyak goreng",
+        "garam",
+        "merica"
       ],
       "is_vegetarian": false,
       "name": "Mie Goreng Jawa",
@@ -68,6 +78,9 @@
         "ketumbar",
         "lengkuas",
         "daun salam",
+        "serai",
+        "garam",
+        "minyak goreng",
         "nasi putih"
       ],
       "is_vegetarian": false,
@@ -80,21 +93,23 @@
       "image": "/static/menu/ayam-goreng-rempah.jpg"
     },
     {
-      "allergens": [
-        "kelapa"
-      ],
+      "allergens": [],
       "category": "makanan_utama",
       "description": "Rendang sapi empuk dengan kuah kental, disajikan dengan nasi.",
       "id": 4,
       "ingredients": [
         "daging sapi",
         "santan kelapa",
-        "cabai merah",
         "bawang merah",
         "bawang putih",
+        "cabai merah",
         "lengkuas",
         "serai",
-        "kunyit",
+        "daun kunyit",
+        "daun jeruk",
+        "ketumbar",
+        "jintan",
+        "garam",
         "nasi putih"
       ],
       "is_vegetarian": false,
@@ -116,15 +131,20 @@
       "description": "Sayur rebus dengan saus kacang dan telur.",
       "id": 5,
       "ingredients": [
-        "kentang",
-        "wortel",
+        "kangkung",
+        "tauge",
         "kacang panjang",
-        "kol",
+        "kentang",
         "telur rebus",
         "tahu",
         "tempe",
-        "saus kacang tanah",
-        "kerupuk"
+        "lontong",
+        "kerupuk",
+        "saus kacang",
+        "kacang tanah",
+        "cabai",
+        "gula merah",
+        "asam jawa"
       ],
       "is_vegetarian": true,
       "name": "Gado-Gado Siram",
@@ -148,9 +168,14 @@
         "bawang merah",
         "bawang putih",
         "serai",
-        "nasi putih",
-        "perkedel kentang",
-        "telur"
+        "daun jeruk",
+        "soun",
+        "telur rebus",
+        "kol",
+        "tomat",
+        "bawang goreng",
+        "jeruk nipis",
+        "nasi putih"
       ],
       "is_vegetarian": false,
       "name": "Soto Ayam Kuning",
@@ -171,11 +196,14 @@
       "available_from": "17:00",
       "available_to": "22:00",
       "ingredients": [
-        "ikan",
+        "ikan kakap",
         "bawang merah",
         "cabai rawit",
         "serai",
-        "jeruk limau",
+        "daun jeruk",
+        "minyak kelapa",
+        "jeruk nipis",
+        "garam",
         "nasi putih"
       ],
       "is_vegetarian": false,
@@ -191,21 +219,26 @@
       "allergens": [
         "udang",
         "cumi",
-        "kerang"
+        "ikan",
+        "kedelai",
+        "wijen"
       ],
       "category": "makanan_utama",
       "description": "Tumis sayur dengan udang dan cumi, disajikan dengan nasi.",
       "id": 8,
       "ingredients": [
-        "udang",
-        "cumi",
         "wortel",
         "brokoli",
         "kembang kol",
         "sawi",
+        "udang",
+        "cumi",
+        "bakso ikan",
         "bawang putih",
         "saus tiram",
-        "nasi putih"
+        "minyak wijen",
+        "garam",
+        "merica"
       ],
       "is_vegetarian": false,
       "name": "Capcay Seafood",
@@ -222,9 +255,10 @@
       "description": "Teh melati dingin dengan gula.",
       "id": 9,
       "ingredients": [
-        "teh melati",
-        "gula",
-        "es"
+        "teh hitam",
+        "gula pasir",
+        "es batu",
+        "air"
       ],
       "is_vegetarian": true,
       "name": "Es Teh Manis",
@@ -241,9 +275,9 @@
       "description": "Kopi hitam pekat diseduh langsung.",
       "id": 10,
       "ingredients": [
-        "kopi",
-        "gula",
-        "air"
+        "kopi robusta bubuk",
+        "gula pasir",
+        "air panas"
       ],
       "is_vegetarian": true,
       "name": "Kopi Tubruk",
@@ -264,7 +298,9 @@
       "ingredients": [
         "alpukat",
         "susu kental manis",
-        "es"
+        "cokelat meses",
+        "es batu",
+        "air"
       ],
       "is_vegetarian": true,
       "name": "Jus Alpukat",
@@ -276,16 +312,16 @@
       "image": "/static/menu/jus-alpukat.jpg"
     },
     {
-      "allergens": [
-        "kelapa"
-      ],
+      "allergens": [],
       "category": "minuman",
       "description": "Kelapa muda dingin dengan gula merah cair.",
       "id": 12,
       "ingredients": [
         "kelapa muda",
-        "gula merah",
-        "es"
+        "gula pasir",
+        "es batu",
+        "jeruk nipis",
+        "air kelapa"
       ],
       "is_vegetarian": true,
       "name": "Es Kelapa Muda",
@@ -298,16 +334,19 @@
     },
     {
       "allergens": [
-        "gluten/gandum"
+        "gandum",
+        "susu"
       ],
       "category": "penutup",
       "description": "Pisang goreng renyah dengan saus cokelat.",
       "id": 13,
       "ingredients": [
-        "pisang",
-        "tepung gandum",
-        "cokelat",
-        "gula",
+        "pisang raja",
+        "tepung terigu",
+        "tepung beras",
+        "gula pasir",
+        "cokelat meses",
+        "keju parut",
         "minyak goreng"
       ],
       "is_vegetarian": true,
@@ -327,12 +366,15 @@
       "description": "Es serut dengan buah, cincau, dan sirup merah.",
       "id": 14,
       "ingredients": [
-        "es serut",
+        "agar-agar",
         "alpukat",
         "nangka",
-        "cincau",
-        "sirup merah",
-        "susu kental manis"
+        "kelapa muda",
+        "cincau hitam",
+        "kolang-kaling",
+        "sirup cocopandan",
+        "susu kental manis",
+        "es serut"
       ],
       "is_vegetarian": true,
       "name": "Es Campur Medan",

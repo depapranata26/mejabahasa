@@ -2,9 +2,13 @@
 
 > Baca dalam Bahasa Indonesia: [README.id.md](README.id.md)
 
-**Status:** working demo (30 October 2026) — guest chat, staff dashboard,
+**Status:** working demo (5 November 2026) — guest chat with cart &
+checkout, table-QR scanner, staff dashboard with live table occupancy,
 kitchen display, floor coordinator, and owner dashboard all run against one
 SQLite database. 200 automated checks pass.
+
+**Live demo:** http://139.190.106.34:8000 (guest) and `/staff`,
+`/kitchen`, `/koordinator`, `/owner` on the same host.
 
 ## Problem
 
@@ -26,10 +30,15 @@ clearing tables, and everything else a short-staffed floor needs.
 ## Guest flow
 
 ```
-Scan table QR → choose speak or type (ID/EN chrome toggle)
-  → AI auto-detects the guest's language (zh / ko / ja / id — live)
-  → order in the guest's language (text or voice input)
-  → agent validates menu & stock → clarifies when ambiguous
+Scan table QR → welcome screen → pick language (47 supported, AI-translated
+  on demand) → browse the visual menu (photos, TipTop-style cards)
+  → add to cart 🛒 → checkout → AI asks about allergies, requests,
+  disliked ingredients → AI asks dine-in or takeaway
+  → dine-in: "got a table yet?" → scan the table QR with the in-app camera
+    (table number is read from the QR itself, never typed) → food routed
+    to that table
+  → no table yet: takeaway, or join the waiting list (queue number issued;
+    free tables are visible to waiting guests)
   → guest confirms → staff ACC → Indonesian kitchen ticket
   → guest watches live order status; reply can be read aloud
 ```
@@ -41,11 +50,21 @@ chatting first.
 
 ## What is built
 
-- **Guest door** (`/`): multilingual chat, voice input (Web Speech API, with
-  graceful degradation), reply read-aloud, menu browsing, ID/EN chrome
-  toggle, live order-status polling, complaint reporting.
-- **Staff dashboard** (`/staff`): order queue, ACC accept/reject, send
-  kitchen ticket, complaint triage, menu admin (stock / price).
+- **Guest door** (`/`): welcome screen, 47-language picker (18 curated +
+  29 AI-translated on demand), multilingual chat, voice input (Web Speech
+  API, with graceful degradation), reply read-aloud, visual menu with food
+  photos, **shopping cart** (add / qty / total / checkout), live
+  order-status polling, complaint reporting.
+- **Table QR scanner**: in-app camera scanner (jsQR, served locally, no
+  CDN) reads the table number straight from the table's QR — the guest
+  never types it. Manual entry remains as fallback.
+- **Dine-in / takeaway / waiting list**: the agent asks after every draft;
+  takeaway orders are flagged for the kitchen; the waiting list issues
+  queue numbers and shows waiting guests which tables are free.
+- **Staff dashboard** (`/staff`): order queue (takeaway flagged 🥡), ACC
+  accept/reject, send kitchen ticket, complaint triage, menu admin
+  (stock / price), **live table-occupancy board** (🟢 free / 🔴 occupied
+  with order number), waiting-list management (call / seat / cancel).
 - **Kitchen display** (`/kitchen`): ticket lifecycle open → cooking →
   ready → served.
 - **Floor coordinator** (`/koordinator`): who cooks/makes/delivers what, per
@@ -55,7 +74,9 @@ chatting first.
   ticket statuses, low stock (≤10), complaints by urgency and open count.
   Refreshes every 10 seconds.
 - **Guardrails**: allergy question before ordering (rule 7), clash rejects
-  the whole order; budget composer; partial revision & negotiation; race-safe
+  the whole order; disliked-ingredient handling ("tanpa bawang" → custom
+  note, or alternative dish); ingredient Q&A answered from the database;
+  budget composer; partial revision & negotiation; race-safe
   stock (BEGIN IMMEDIATE); time-window menu items; every agent action logged
   in `agent_action_log`.
 
@@ -90,6 +111,12 @@ the key.
    (human-in-the-loop).
 4. **Every agent action is logged** in `agent_action_log` so it can be
    audited.
+5. **Allergy + dislikes before every draft** (rule 7/7b): allergies,
+   restrictions, and disliked ingredients are asked once per draft; a
+   clash rejects the whole order.
+6. **Dine-in / takeaway / waiting list** (rule 17): asked before
+   `create_order`; after the draft the agent asks "got a table yet?" and
+   points at the QR scanner, or offers takeaway / waiting list.
 
 ## Repo structure
 
@@ -115,9 +142,13 @@ backend/
   test_*.py            Test suites — *_live.py need a model key, the rest
                        run offline
 data/
-  schema.sql           SQLite schema: menu, stock, orders, tickets, action log
+  schema.sql           SQLite schema: menu, stock, orders, tickets, action log,
+                       waiting list, table occupancy
 demo/
   menu.json            FICTITIOUS sample menu (not any real restaurant's data)
+static/
+  jsqr.min.js          QR-decoding library served locally (no CDN at runtime)
+  menu/                Food photos for the visual menu
 .env.example           Configuration placeholder (no real keys)
 .gitignore
 ```
@@ -128,12 +159,15 @@ demo/
   reservations, order status) — phase 2 after the hackathon, same engine, a
   different door. WhatsApp Cloud API integration is deliberately not built
   here because it is a project of its own.
-- **Table waitlist** — stretch goal, only if the core finishes early.
 - **Bill explanation and waiter tutor** — video-roadmap only.
 - **Real payment gateway (QRIS / transfer / deposit)** — only a simulated
   step in the demo, not a real transaction (needs a merchant account and
   business documents).
 - **Reservations + floor plan editor, multi-restaurant, native apps.**
+
+(The table waiting list was a stretch goal — it is now built: queue
+numbers, staff call/seat/cancel, and free-table visibility for waiting
+guests.)
 
 ## Demo data
 
@@ -159,5 +193,7 @@ git-ignored — never committed.
 **No authentication in this demo.** All pages are open on the local network
 by design; the owner dashboard says so on the page itself.
 
-**No live hosting yet.** This README describes the local demo; any public
-URL will be announced separately.
+**Live demo:** http://139.190.106.34:8000 — served from a VPS (Biznet
+GioCloud, `backend/server.py` on port 8000). Table QR codes point at
+`http://139.190.106.34:8000/?table=<TABLE_NO>` so the table number is
+captured automatically on scan.

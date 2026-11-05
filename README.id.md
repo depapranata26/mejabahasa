@@ -2,9 +2,13 @@
 
 > Read in English: [README.md](README.md)
 
-**Status:** demo jalan (30 Oktober 2026) — chat tamu, dashboard staf, layar
-dapur, koordinator lapangan, dan dashboard owner semuanya jalan di atas satu
-database SQLite. 200 automated checks lolos.
+**Status:** demo jalan (5 November 2026) — chat tamu dengan keranjang &
+checkout, pemindai QR meja, dashboard staf dengan okupansi meja live,
+layar dapur, koordinator lapangan, dan dashboard owner semuanya jalan di
+atas satu database SQLite. 200 automated checks lolos.
+
+**Demo live:** http://139.190.106.34:8000 (tamu) dan `/staff`, `/kitchen`,
+`/koordinator`, `/owner` di host yang sama.
 
 ## Masalah yang diselesaikan
 
@@ -26,10 +30,15 @@ dibutuhkan lantai yang kekurangan staf.
 ## Alur tamu
 
 ```
-Scan QR meja → pilih ngomong atau ngetik (toggle chrome ID/EN)
-  → AI deteksi bahasa tamu otomatis (zh / ko / ja / id — live)
-  → pesan dalam bahasa tamu (teks atau input suara)
-  → agen validasi menu & stok → klarifikasi kalau ambigu
+Scan QR meja → layar sambutan → pilih bahasa (47 bahasa, AI-translate
+  on demand) → lihat menu visual (foto, kartu gaya TipTop)
+  → masukkan keranjang 🛒 → checkout → AI tanya alergi, request,
+  bahan yang tidak disukai → AI tanya makan di tempat atau takeaway
+  → makan di tempat: "sudah dapat meja?" → scan QR meja pakai kamera
+    di dalam app (nomor meja dibaca dari QR-nya langsung, tidak diketik)
+    → makanan diarahkan ke meja itu
+  → belum dapat meja: takeaway, atau daftar waiting list (dapat nomor
+    antrean; tamu waiting bisa lihat meja mana yang kosong)
   → tamu konfirmasi → staf ACC → tiket dapur bahasa Indonesia
   → tamu pantau status order live; balasan bisa dibacakan
 ```
@@ -41,11 +50,22 @@ tanpa chat dulu.
 
 ## Yang sudah dibangun
 
-- **Pintu tamu** (`/`): chat multibahasa, input suara (Web Speech API,
-  disembunyikan anggun kalau browser tak mendukung), bacakan balasan,
-  browse menu, toggle chrome ID/EN, polling status order live, lapor keluhan.
-- **Dashboard staf** (`/staff`): antrean order, ACC terima/tolak, kirim
-  tiket dapur, triase keluhan, kelola menu (stok / harga).
+- **Pintu tamu** (`/`): layar sambutan, pilih bahasa 47 (18 kurasi + 29
+  AI-translate on demand), chat multibahasa, input suara (Web Speech API,
+  disembunyikan anggun kalau browser tak mendukung), bacakan balasan, menu
+  visual dengan foto makanan, **keranjang belanja** (tambah / qty / total /
+  checkout), polling status order live, lapor keluhan.
+- **Pemindai QR meja**: kamera di dalam app (jsQR, diserve lokal, tanpa
+  CDN) membaca nomor meja langsung dari QR-nya — tamu tidak perlu
+  mengetik. Input manual tetap ada sebagai fallback.
+- **Makan di tempat / takeaway / waiting list**: agen bertanya setiap
+  selesai draft; order takeaway ditandai untuk dapur; waiting list
+  mengeluarkan nomor antrean dan menampilkan meja kosong ke tamu yang
+  menunggu.
+- **Dashboard staf** (`/staff`): antrean order (takeaway ditandai 🥡), ACC
+  terima/tolak, kirim tiket dapur, triase keluhan, kelola menu (stok /
+  harga), **papan okupansi meja live** (🟢 kosong / 🔴 terisi + nomor
+  order), kelola waiting list (panggil / duduki / batal).
 - **Layar dapur** (`/kitchen`): lifecycle tiket open → cooking → ready →
   served.
 - **Koordinator lapangan** (`/koordinator`): siapa masak/buat/antar apa per
@@ -55,9 +75,11 @@ tanpa chat dulu.
   status tiket, stok menipis (≤10), keluhan per urgensi + yang open.
   Refresh tiap 10 detik.
 - **Guardrails**: tanya alergi sebelum order (aturan 7), bentrok alergi
-  menolak seluruh order; peracik budget; revisi + negosiasi parsial;
-  stok anti-race (BEGIN IMMEDIATE); item menu berjendela waktu; semua aksi
-  agen tercatat di `agent_action_log`.
+  menolak seluruh order; penanganan bahan tidak disukai ("tanpa bawang" →
+  custom note, atau tawari hidangan alternatif); tanya jawab bahan dari
+  database; peracik budget; revisi + negosiasi parsial; stok anti-race
+  (BEGIN IMMEDIATE); item menu berjendela waktu; semua aksi agen tercatat
+  di `agent_action_log`.
 
 ## Konteks hackathon
 
@@ -87,6 +109,13 @@ koordinator, dan owner tetap jalan; hanya balasan chat AI yang butuh key.
 3. **Pesanan dan tiket hanya jalan setelah konfirmasi tamu + ACC staf**
    (human-in-the-loop).
 4. **Semua aksi agen tercatat** di `agent_action_log` supaya bisa diaudit.
+5. **Alergi + bahan tidak disukai sebelum setiap draft** (aturan 7/7b):
+   alergi, pantangan, dan bahan yang tidak disukai ditanya sekali per
+   draft; bentrok menolak seluruh order.
+6. **Makan di tempat / takeaway / waiting list** (aturan 17): ditanya
+   sebelum `create_order`; setelah draft, agen tanya "sudah dapat meja?"
+   dan mengarahkan ke pemindai QR, atau menawarkan takeaway / waiting
+   list.
 
 ## Struktur repo
 
@@ -112,9 +141,13 @@ backend/
   test_*.py            Suite tes — *_live.py butuh model key, sisanya
                        jalan offline
 data/
-  schema.sql           Skema SQLite: menu, stok, pesanan, tiket, log aksi
+  schema.sql           Skema SQLite: menu, stok, pesanan, tiket, log aksi,
+                       waiting list, okupansi meja
 demo/
   menu.json            Menu contoh FIKTIF (bukan data restoran manapun)
+static/
+  jsqr.min.js          Library decode QR diserve lokal (tanpa CDN saat jalan)
+  menu/                Foto makanan untuk menu visual
 .env.example           Placeholder konfigurasi (tanpa key asli)
 .gitignore
 ```
@@ -122,14 +155,18 @@ demo/
 ## Scope — yang TIDAK dibangun di hackathon ini (roadmap)
 
 - **Pintu WhatsApp untuk pelanggan lokal** (tanya menu, spesial harian,
-  reservasi, status pesanan) — fase 2 pasca-hackathon, mesin yang sama, pintu
-  berbeda. Integrasi WhatsApp Cloud API sengaja tidak dibangun di sini karena
-  scope-nya satu proyek sendiri.
-- **Waitlist meja** — stretch goal, hanya kalau inti selesai lebih cepat.
+  reservasi, status pesanan) — fase 2 pasca-hackathon, mesin yang sama,
+  pintu berbeda. Integrasi WhatsApp Cloud API sengaja tidak dibangun di
+  sini karena scope-nya satu proyek sendiri.
 - **Penjelasan tagihan dan tutor waiter** — roadmap video saja.
-- **Payment gateway beneran (QRIS / transfer / DP)** — di demo hanya langkah
-  simulasi, bukan transaksi beneran (butuh akun merchant & dokumen usaha).
+- **Payment gateway beneran (QRIS / transfer / DP)** — di demo hanya
+  langkah simulasi, bukan transaksi beneran (butuh akun merchant & dokumen
+  usaha).
 - **Reservasi + floor plan editor, multi-restoran, aplikasi native.**
+
+(Waiting list meja tadinya stretch goal — sekarang sudah dibangun: nomor
+antrean, staf panggil/duduki/batal, dan tamu waiting bisa lihat meja
+kosong.)
 
 ## Data demo
 
@@ -155,5 +192,7 @@ jangan pernah di-commit.
 **Demo ini tanpa login.** Semua halaman terbuka di jaringan lokal by design;
 halaman dashboard owner menyatakannya langsung di halamannya.
 
-**Belum ada hosting live.** README ini mendeskripsikan demo lokal; URL publik
-akan diumumkan terpisah kalau sudah ada.
+**Demo live:** http://139.190.106.34:8000 — diserve dari VPS (Biznet
+GioCloud, `backend/server.py` di port 8000). QR meja mengarah ke
+`http://139.190.106.34:8000/?table=<NOMOR_MEJA>` supaya nomor meja
+tertangkap otomatis saat di-scan.
